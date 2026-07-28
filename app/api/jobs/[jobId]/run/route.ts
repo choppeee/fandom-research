@@ -3,6 +3,11 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { searchVideoIds, getVideoDetails, getVideoComments } from "@/lib/youtube";
 import { analyzeCommentBatch, generateJobInsight, COMMENT_BATCH_SIZE } from "@/lib/claude";
 import { computeAggregates, buildCommentSample, type CommentRow } from "@/lib/aggregate";
+import { mapWithConcurrency } from "@/lib/concurrency";
+
+// 유튜브 댓글 수집 / Claude 배치 분석 동시 실행 개수 (Vercel 함수 시간제한 대응)
+const COLLECT_CONCURRENCY = 5;
+const ANALYZE_CONCURRENCY = 5;
 
 export const maxDuration = 300;
 
@@ -86,23 +91,22 @@ export async function POST(
 
     await setJobState(admin, jobId, { status: "collecting_comments", progress: 25 });
 
-    // 2. 댓글 수집
-    const allComments: CommentRow[] = [];
-    for (let i = 0; i < videos.length; i++) {
-      const v = videos[i];
+    // 2. 댓글 수집 (영상 여러 개를 동시에 처리)
+    let collectedVideos = 0;
+    const commentChunks = await mapWithConcurrency(videos, COLLECT_CONCURRENCY, async (v) => {
       const comments = await getVideoComments(v.videoId, job.max_comments_per_video);
-      for (const c of comments) {
-        allComments.push({
-          commentId: c.commentId,
-          videoId: v.videoId,
-          textOriginal: c.textOriginal,
-          likeCount: c.likeCount,
-          publishedAt: c.publishedAt,
-        });
-      }
-      const pct = 25 + Math.round(((i + 1) / Math.max(videos.length, 1)) * 20);
+      collectedVideos += 1;
+      const pct = 25 + Math.round((collectedVideos / Math.max(videos.length, 1)) * 20);
       await setJobState(admin, jobId, { progress: pct });
-    }
+      return comments.map((c): CommentRow => ({
+        commentId: c.commentId,
+        videoId: v.videoId,
+        textOriginal: c.textOriginal,
+        likeCount: c.likeCount,
+        publishedAt: c.publishedAt,
+      }));
+    });
+    const allComments: CommentRow[] = commentChunks.flat();
 
     if (allComments.length > 0) {
       const { error: commentsError } = await admin.from("youtube_comments").upsert(
@@ -137,10 +141,14 @@ export async function POST(
 
     await setJobState(admin, jobId, { status: "analyzing", progress: 50 });
 
-    // 3. 배치 감성/속성 분석
-    const analyses = [];
+    // 3. 배치 감성/속성 분석 (여러 배치를 동시에 처리)
+    const batches: CommentRow[][] = [];
     for (let i = 0; i < commentRows.length; i += COMMENT_BATCH_SIZE) {
-      const batch = commentRows.slice(i, i + COMMENT_BATCH_SIZE);
+      batches.push(commentRows.slice(i, i + COMMENT_BATCH_SIZE));
+    }
+
+    let analyzedComments = 0;
+    const analysesNested = await mapWithConcurrency(batches, ANALYZE_CONCURRENCY, async (batch) => {
       const batchIds = new Set(batch.map((c) => c.commentId));
       const rawResults = await analyzeCommentBatch(
         job.keyword,
@@ -149,7 +157,6 @@ export async function POST(
       // 모델이 comment_id를 잘못 옮겨 적어 존재하지 않는 ID를 반환하는 경우가 있어
       // (FK 위반으로 배치 전체 저장이 실패하는 것을 막기 위해) 요청한 ID 목록에 있는 것만 사용한다.
       const results = rawResults.filter((r) => batchIds.has(r.commentId));
-      analyses.push(...results);
 
       if (results.length > 0) {
         const { error: analysisError } = await admin.from("comment_analysis").upsert(
@@ -174,9 +181,13 @@ export async function POST(
         }
       }
 
-      const pct = 50 + Math.round(((i + batch.length) / Math.max(commentRows.length, 1)) * 35);
+      analyzedComments += batch.length;
+      const pct = 50 + Math.round((analyzedComments / Math.max(commentRows.length, 1)) * 35);
       await setJobState(admin, jobId, { progress: Math.min(pct, 85) });
-    }
+
+      return results;
+    });
+    const analyses = analysesNested.flat();
 
     // 4. 집계 + 종합 인사이트 (IP 인텔리전스 리포트)
     const aggregates = computeAggregates(commentRows, analyses);
