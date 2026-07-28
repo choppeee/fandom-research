@@ -145,3 +145,69 @@ export function computeAggregates(
     riskGroups,
   };
 }
+
+export type CommentSampleItem = {
+  commentId: string;
+  text: string;
+  likeCount: number;
+  sentiment: CommentAnalysisResult["sentiment"];
+  purchaseIntent: boolean;
+  riskFlag: CommentAnalysisResult["riskFlag"];
+  fandomExpressions: string[];
+};
+
+/**
+ * 정성 분석(심리적 동인, 기대격차 등)에 쓸 대표 댓글 샘플을 뽑는다.
+ * 좋아요 상위 + 감성별 상위 + 위험군 + 팬덤 표현 포함 댓글을 우선순위로 섞어
+ * 프롬프트 크기를 통제하면서도 다양한 반응을 모델에 보여준다.
+ */
+export function buildCommentSample(
+  comments: CommentRow[],
+  analyses: CommentAnalysisResult[],
+  limit = 40
+): CommentSampleItem[] {
+  const commentById = new Map(comments.map((c) => [c.commentId, c]));
+  const toItem = (a: CommentAnalysisResult): CommentSampleItem | null => {
+    const c = commentById.get(a.commentId);
+    if (!c) return null;
+    return {
+      commentId: a.commentId,
+      text: c.textOriginal.slice(0, 280),
+      likeCount: c.likeCount,
+      sentiment: a.sentiment,
+      purchaseIntent: a.purchaseIntent,
+      riskFlag: a.riskFlag,
+      fandomExpressions: a.fandomExpressions,
+    };
+  };
+
+  const picked = new Map<string, CommentSampleItem>();
+  const add = (list: CommentAnalysisResult[]) => {
+    for (const a of list) {
+      if (picked.size >= limit) return;
+      if (picked.has(a.commentId)) continue;
+      const item = toItem(a);
+      if (item) picked.set(a.commentId, item);
+    }
+  };
+
+  const byLikes = (a: CommentAnalysisResult[]) =>
+    [...a].sort(
+      (x, y) => (commentById.get(y.commentId)?.likeCount ?? 0) - (commentById.get(x.commentId)?.likeCount ?? 0)
+    );
+
+  // 1) 위험 신호 댓글 (전부, 최대 10)
+  add(byLikes(analyses.filter((a) => a.riskFlag !== "none")).slice(0, 10));
+  // 2) 팬덤 표현이 담긴 댓글
+  add(byLikes(analyses.filter((a) => a.fandomExpressions.length > 0)).slice(0, 8));
+  // 3) 구매의향 댓글
+  add(byLikes(analyses.filter((a) => a.purchaseIntent)).slice(0, 6));
+  // 4) 감성별 좋아요 상위
+  for (const sentiment of ["positive", "negative", "neutral"] as const) {
+    add(byLikes(analyses.filter((a) => a.sentiment === sentiment)).slice(0, 8));
+  }
+  // 5) 전체 좋아요 상위로 나머지 채우기
+  add(byLikes(analyses));
+
+  return [...picked.values()].slice(0, limit);
+}

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { IP_INTELLIGENCE_SYSTEM_PROMPT } from "./ip-intelligence-prompt";
 
 let client: Anthropic | null = null;
 function anthropic() {
@@ -120,35 +121,6 @@ ${JSON.stringify(comments, null, 2)}`;
   }));
 }
 
-const INSIGHT_TOOL_SCHEMA = {
-  name: "record_job_insight",
-  description: "리서치 Job 전체에 대한 종합 서술형 인사이트와 이슈 설명을 기록한다.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      summary_text: {
-        type: "string" as const,
-        description: "3~5문단의 한국어 종합 인사이트 서술 (언급량 추이, 여론, 팬덤 반응, 리스크 순으로)",
-      },
-      risk_alerts: {
-        type: "array" as const,
-        items: {
-          type: "object" as const,
-          properties: {
-            level: { type: "string" as const, enum: ["caution", "high_risk"] },
-            description: {
-              type: "string" as const,
-              description: "이 위험군 댓글들을 근거로 한 1~2문장 설명",
-            },
-          },
-          required: ["level", "description"],
-        },
-      },
-    },
-    required: ["summary_text", "risk_alerts"],
-  },
-};
-
 export type InsightContext = {
   keyword: string;
   periodStart: string;
@@ -160,28 +132,42 @@ export type InsightContext = {
   dailyTrend: { date: string; mentions: number; engagement: number }[];
   purchaseIntentPositiveRatio: number;
   riskGroups: { level: "caution" | "high_risk"; count: number; examples: string[] }[];
+  commentSample: {
+    commentId: string;
+    text: string;
+    likeCount: number;
+    sentiment: string;
+    purchaseIntent: boolean;
+    riskFlag: string;
+    fandomExpressions: string[];
+  }[];
 };
 
 export type GeneratedInsight = {
   summaryText: string;
-  riskAlerts: { level: "caution" | "high_risk"; description: string }[];
 };
 
-/** Job 단위 집계 데이터를 근거로 종합 서술형 인사이트를 생성한다. */
+const INSIGHT_MAX_TOKENS = 8000;
+
+/**
+ * Job 단위 집계 데이터 + 대표 댓글 샘플을 근거로
+ * IP 인텔리전스 리포트(FINAL REPORT 1~20 섹션)를 생성한다.
+ */
 export async function generateJobInsight(
   ctx: InsightContext
 ): Promise<GeneratedInsight> {
   if (ctx.commentCount === 0) {
-    return { summaryText: "분석할 댓글 데이터가 없습니다.", riskAlerts: [] };
+    return { summaryText: "분석할 댓글 데이터가 없습니다." };
   }
 
-  const prompt = `아래는 "${ctx.keyword}" 키워드로 ${ctx.periodStart}~${ctx.periodEnd} 기간에
-수집한 유튜브 영상 ${ctx.videoCount}개, 댓글 ${ctx.commentCount}개에 대한 집계 데이터입니다.
-이 데이터를 근거로 record_job_insight 도구를 호출해
-1) 3~5문단짜리 한국어 종합 인사이트(언급량 추이 → 여론/감성 → 팬덤 반응 → 구매의향 → 리스크 순)와
-2) 리스크 그룹별 설명을 작성하세요. 반드시 주어진 데이터에 근거해서만 서술하고, 없는 사실을 지어내지 마세요.
+  const prompt = `분석 대상(IP): "${ctx.keyword}"
+데이터 출처: 유튜브 영상 ${ctx.videoCount}개 및 그 댓글 ${ctx.commentCount}개
+분석 기간: ${ctx.periodStart} ~ ${ctx.periodEnd}
 
-집계 데이터(JSON):
+아래는 이 데이터에서 뽑은 집계 통계와 대표 댓글 샘플이다.
+이 데이터만 근거로 삼아 시스템 지침의 FINAL REPORT(1~20번 섹션)를 작성하라.
+
+[집계 통계]
 ${JSON.stringify(
   {
     topKeywords: ctx.topKeywords,
@@ -192,28 +178,21 @@ ${JSON.stringify(
   },
   null,
   2
-)}`;
+)}
+
+[대표 댓글 샘플 (${ctx.commentSample.length}건 — likeCount 및 1차 분류 라벨 포함)]
+${JSON.stringify(ctx.commentSample, null, 2)}`;
 
   const res = await anthropic().messages.create({
     model: INSIGHT_MODEL,
-    max_tokens: 2048,
-    tools: [INSIGHT_TOOL_SCHEMA],
-    tool_choice: { type: "tool", name: "record_job_insight" },
+    max_tokens: INSIGHT_MAX_TOKENS,
+    system: IP_INTELLIGENCE_SYSTEM_PROMPT,
     messages: [{ role: "user", content: prompt }],
   });
 
-  const toolUse = res.content.find(
-    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+  const textBlock = res.content.find(
+    (b): b is Anthropic.TextBlock => b.type === "text"
   );
-  if (!toolUse) return { summaryText: "", riskAlerts: [] };
 
-  const input = toolUse.input as {
-    summary_text: string;
-    risk_alerts: { level: "caution" | "high_risk"; description: string }[];
-  };
-
-  return {
-    summaryText: input.summary_text,
-    riskAlerts: input.risk_alerts ?? [],
-  };
+  return { summaryText: textBlock?.text ?? "" };
 }

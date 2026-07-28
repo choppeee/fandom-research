@@ -6,6 +6,44 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 const FONT_REGULAR = path.join(process.cwd(), "assets/fonts/NanumGothic-Regular.ttf");
 const FONT_BOLD = path.join(process.cwd(), "assets/fonts/NanumGothic-Bold.ttf");
 
+/** 마크다운 리포트를 pdfkit으로 대략적으로 옮긴다 (헤딩/목록 구분, 인라인 서식은 기호만 제거). */
+function renderMarkdownToPdf(doc: PDFKit.PDFDocument, markdown: string) {
+  const stripInline = (s: string) =>
+    s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`(.+?)`/g, "$1");
+
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      doc.moveDown(0.4);
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      doc.moveDown(0.5);
+      doc.font("heading").fontSize(14).text(stripInline(line.slice(3)));
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      doc.moveDown(0.3);
+      doc.font("heading").fontSize(12).text(stripInline(line.slice(4)));
+      continue;
+    }
+    if (/^[-*]\s+/.test(line.trim())) {
+      doc.font("body").fontSize(10).text(`•  ${stripInline(line.trim().replace(/^[-*]\s+/, ""))}`, {
+        indent: 12,
+      });
+      continue;
+    }
+    if (line.startsWith("|")) {
+      // 표는 pdfkit에서 정확히 재현하지 않고 셀을 구분자로 이어붙여 표시한다
+      const cells = line.split("|").map((c) => c.trim()).filter(Boolean);
+      if (cells.every((c) => /^-+$/.test(c))) continue;
+      doc.font("body").fontSize(9).text(cells.join("  |  "));
+      continue;
+    }
+    doc.font("body").fontSize(10).text(stripInline(line));
+  }
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
@@ -69,8 +107,9 @@ export async function GET(
   if (!insight) {
     doc.font("body").fontSize(11).text("분석 결과가 없습니다.");
   } else {
-    doc.font("heading").fontSize(14).text("종합 인사이트");
-    doc.font("body").fontSize(11).text(insight.summary_text ?? "", { align: "left" });
+    doc.font("heading").fontSize(16).text("IP 인텔리전스 리포트");
+    doc.moveDown(0.5);
+    renderMarkdownToPdf(doc, insight.summary_text ?? "");
     doc.moveDown();
 
     doc.font("heading").fontSize(14).text("감성 비율");

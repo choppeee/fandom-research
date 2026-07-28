@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -187,8 +189,13 @@ export function JobDashboard({ jobId }: { jobId: string }) {
       ) : (
         <>
           <section className="space-y-2 rounded-lg border border-border p-4">
-            <h3 className="font-semibold">종합 인사이트</h3>
-            <p className="whitespace-pre-line text-sm leading-relaxed">{insight.summaryText}</p>
+            <h3 className="font-semibold">IP 인텔리전스 리포트</h3>
+            <p className="text-xs text-muted-foreground">
+              대중 인식 구조·심리적 동인·포지셔닝 기회를 데이터 근거로 분석한 전략 리포트입니다.
+            </p>
+            <div className="ip-report">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{insight.summaryText}</ReactMarkdown>
+            </div>
           </section>
 
           <section className="space-y-2 rounded-lg border border-border p-4">

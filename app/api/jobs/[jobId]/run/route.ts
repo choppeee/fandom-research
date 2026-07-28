@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { searchVideoIds, getVideoDetails, getVideoComments } from "@/lib/youtube";
 import { analyzeCommentBatch, generateJobInsight, COMMENT_BATCH_SIZE } from "@/lib/claude";
-import { computeAggregates, type CommentRow } from "@/lib/aggregate";
+import { computeAggregates, buildCommentSample, type CommentRow } from "@/lib/aggregate";
 
 export const maxDuration = 300;
 
@@ -170,8 +170,9 @@ export async function POST(
       await setJobState(admin, jobId, { progress: Math.min(pct, 85) });
     }
 
-    // 4. 집계 + 종합 인사이트
+    // 4. 집계 + 종합 인사이트 (IP 인텔리전스 리포트)
     const aggregates = computeAggregates(commentRows, analyses);
+    const commentSample = buildCommentSample(commentRows, analyses);
 
     const generated = await generateJobInsight({
       keyword: job.keyword,
@@ -188,16 +189,16 @@ export async function POST(
         count: g.count,
         examples: g.examples,
       })),
+      commentSample,
     });
 
-    const riskAlerts = aggregates.riskGroups.map((g) => {
-      const desc = generated.riskAlerts.find((r) => r.level === g.level);
-      return {
-        level: g.level,
-        description: desc?.description ?? `${g.level === "high_risk" ? "고위험" : "주의"} 댓글 ${g.count}건 발견`,
-        example_comment_id: g.exampleCommentIds[0] ?? null,
-      };
-    });
+    // 리스크 카드는 리포트 16번 섹션(Risk & Misperception)과 별개로,
+    // 대시보드용 요약 라벨은 집계 데이터에서 직접 생성한다.
+    const riskAlerts = aggregates.riskGroups.map((g) => ({
+      level: g.level,
+      description: `${g.level === "high_risk" ? "고위험" : "주의"} 댓글 ${g.count}건 발견 — 상세 내용은 위 리포트 "17. Risk & Misperception" 참고`,
+      example_comment_id: g.exampleCommentIds[0] ?? null,
+    }));
 
     await setJobState(admin, jobId, { progress: 95 });
 
