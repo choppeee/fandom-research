@@ -141,10 +141,14 @@ export async function POST(
     const analyses = [];
     for (let i = 0; i < commentRows.length; i += COMMENT_BATCH_SIZE) {
       const batch = commentRows.slice(i, i + COMMENT_BATCH_SIZE);
-      const results = await analyzeCommentBatch(
+      const batchIds = new Set(batch.map((c) => c.commentId));
+      const rawResults = await analyzeCommentBatch(
         job.keyword,
         batch.map((c) => ({ commentId: c.commentId, text: c.textOriginal }))
       );
+      // 모델이 comment_id를 잘못 옮겨 적어 존재하지 않는 ID를 반환하는 경우가 있어
+      // (FK 위반으로 배치 전체 저장이 실패하는 것을 막기 위해) 요청한 ID 목록에 있는 것만 사용한다.
+      const results = rawResults.filter((r) => batchIds.has(r.commentId));
       analyses.push(...results);
 
       if (results.length > 0) {
@@ -163,7 +167,11 @@ export async function POST(
           })),
           { onConflict: "comment_id" }
         );
-        if (analysisError) throw new Error(`분석 결과 저장 실패: ${analysisError.message}`);
+        // 배치 하나가 실패해도(예: 예상치 못한 데이터 문제) 이미 수집/과금된 나머지
+        // 배치 작업을 버리지 않도록 job 전체를 실패시키지 않고 건너뛴다.
+        if (analysisError) {
+          console.error(`[run] 배치 분석 저장 실패 (건너뜀): ${analysisError.message}`);
+        }
       }
 
       const pct = 50 + Math.round(((i + batch.length) / Math.max(commentRows.length, 1)) * 35);
