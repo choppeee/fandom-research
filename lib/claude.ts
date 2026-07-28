@@ -94,7 +94,7 @@ ${JSON.stringify(comments, null, 2)}`;
 
   const res = await anthropic().messages.create({
     model: CLASSIFY_MODEL,
-    max_tokens: 4096,
+    max_tokens: 8192,
     tools: [COMMENT_TOOL_SCHEMA],
     tool_choice: { type: "tool", name: "record_comment_analysis" },
     messages: [{ role: "user", content: prompt }],
@@ -105,8 +105,14 @@ ${JSON.stringify(comments, null, 2)}`;
   );
   if (!toolUse) return [];
 
-  const input = toolUse.input as { results: Record<string, unknown>[] };
-  return (input.results ?? []).map((r) => ({
+  const input = toolUse.input as { results?: unknown };
+  // 모델 응답이 스키마와 다르게 오는 경우(배열이 아닌 값 등) 배치 전체를 건너뛴다.
+  if (!Array.isArray(input.results)) {
+    console.error("[analyzeCommentBatch] results가 배열이 아님, 배치 건너뜀:", input);
+    return [];
+  }
+
+  return (input.results as Record<string, unknown>[]).map((r) => ({
     commentId: String(r.comment_id),
     sentiment: r.sentiment as CommentAnalysisResult["sentiment"],
     purchaseIntent: Boolean(r.purchase_intent),
