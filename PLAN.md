@@ -289,6 +289,80 @@ create table analysis_tasks (
 create index idx_tasks_status on analysis_tasks(status);
 ```
 
+-- =========================================
+-- 8. 플랫폼 확장(X/Web) + 비동기 분석 아키텍처용 테이블
+--    (analysis_tasks는 7번에서 이미 정의된 것을 그대로 사용)
+-- =========================================
+
+-- 기존 유튜브 테이블에 platform 컬럼 추가 (하위호환, 기본값 youtube)
+alter table youtube_videos add column if not exists platform text not null default 'youtube';
+alter table youtube_comments add column if not exists platform text not null default 'youtube';
+
+-- 범용 소셜 포스트 테이블 (X, 향후 Web 등 비-유튜브 플랫폼)
+create table if not exists social_posts (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid references research_jobs(id) on delete cascade,
+  platform text not null,              -- x | web | ...
+  external_id text not null,           -- 플랫폼 고유 게시물 ID
+  url text,
+  author text,
+  text_original text not null,
+  created_at timestamptz,
+  like_count int default 0,
+  share_count int default 0,           -- retweet/repost
+  reply_count int default 0,
+  quote_count int default 0,
+  language text,
+  hashtags text[],
+  mentions text[],
+  referenced_post_id text,
+  search_query text,                   -- 어떤 확장 검색어로 수집됐는지
+  collected_at timestamptz default now(),
+  raw_json jsonb,
+  unique (platform, external_id)
+);
+create index if not exists idx_social_posts_job on social_posts(job_id);
+
+-- social_posts 단위 AI 분석 (youtube_comments의 comment_analysis와 동일 역할)
+create table if not exists post_analysis (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid references research_jobs(id) on delete cascade,
+  post_id uuid references social_posts(id) on delete cascade,
+  sentiment text,
+  purchase_intent boolean,
+  ad_reaction text,
+  risk_flag text,
+  extracted_keywords text[],
+  fandom_expressions text[],
+  raw_json jsonb not null,
+  model_version text,
+  analyzed_at timestamptz default now(),
+  unique (post_id)
+);
+create index if not exists idx_post_analysis_job on post_analysis(job_id);
+
+-- 모듈별 심층 분석 결과 (Observation→Evidence→Interpretation→Psychology→Strategy→Action 구조)
+create table if not exists job_analysis_modules (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid references research_jobs(id) on delete cascade,
+  module_key text not null,        -- audience_perception | character_traits | ...
+  platform text,                   -- youtube | x | cross | null(IP 전체)
+  title text,
+  content_md text,
+  evidence jsonb,
+  confidence text,                 -- high | medium | low
+  model_version text,
+  created_at timestamptz default now(),
+  unique (job_id, module_key)
+);
+create index if not exists idx_analysis_modules_job on job_analysis_modules(job_id);
+
+-- job_insights: 검증된 외부 레퍼런스(실제 검색 결과 URL만)
+alter table job_insights add column if not exists research_references jsonb;
+
+-- 태스크 큐 조회 성능용 복합 인덱스
+create index if not exists idx_tasks_job_status on analysis_tasks(job_id, status);
+
 **중복 방지 핵심 규칙**
 - `research_jobs`: (user_id, keyword, period_start, period_end) 유니크 → 동일 조건 재검색 시 기존 Job 재사용
 - `youtube_videos`: (video_id, job_id) 유니크 → Job 내 재수집 방지

@@ -4,9 +4,17 @@ import { createClient } from "@/lib/supabase/server";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "대기 중",
-  collecting_videos: "영상 수집 중",
-  collecting_comments: "댓글 수집 중",
-  analyzing: "분석 중",
+  collect: "수집 중",
+  classify: "1차 분류 중",
+  aggregate: "집계 중",
+  modules: "심층 분석 중",
+  platform: "플랫폼별 분석 중",
+  cross: "교차 분석 중",
+  positioning: "포지셔닝 도출 중",
+  strategy_actions: "전략 생성 중",
+  reference: "레퍼런스 검색 중",
+  executive_summary: "요약 작성 중",
+  assemble: "리포트 조립 중",
   done: "완료",
   failed: "실패",
 };

@@ -9,7 +9,10 @@ const FONT_BOLD = path.join(process.cwd(), "assets/fonts/NanumGothic-Bold.ttf");
 /** 마크다운 리포트를 pdfkit으로 대략적으로 옮긴다 (헤딩/목록 구분, 인라인 서식은 기호만 제거). */
 function renderMarkdownToPdf(doc: PDFKit.PDFDocument, markdown: string) {
   const stripInline = (s: string) =>
-    s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`(.+?)`/g, "$1");
+    s
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/`(.+?)`/g, "$1")
+      .replace(/\[(.+?)\]\((.+?)\)/g, "$1 ($2)");
 
   for (const rawLine of markdown.split("\n")) {
     const line = rawLine.trimEnd();

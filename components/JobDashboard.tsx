@@ -59,9 +59,17 @@ type CommentItem = {
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "대기 중",
-  collecting_videos: "영상 수집 중",
-  collecting_comments: "댓글 수집 중",
-  analyzing: "분석 중",
+  collect: "영상·댓글 수집 중",
+  classify: "댓글 1차 분류 중",
+  aggregate: "통계 집계 중",
+  modules: "심층 분석 중 (인식·심리·전환 등)",
+  platform: "플랫폼별 분석 중",
+  cross: "플랫폼 교차 분석 중",
+  positioning: "포지셔닝 전략 도출 중",
+  strategy_actions: "실행 전략·아이디어 생성 중",
+  reference: "외부 레퍼런스 검색 중",
+  executive_summary: "종합 요약 작성 중",
+  assemble: "리포트 조립 중",
   done: "완료",
   failed: "실패",
 };
@@ -75,8 +83,8 @@ const SENTIMENT_COLORS: Record<string, string> = {
 export function JobDashboard({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<JobStatus | null>(null);
   const [insight, setInsight] = useState<Insight | null>(null);
-  const startedRun = useRef(false);
   const insightFetched = useRef(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch(`/api/jobs/${jobId}`);
@@ -87,20 +95,32 @@ export function JobDashboard({ jobId }: { jobId: string }) {
     fetchStatus();
   }, [fetchStatus]);
 
-  // pending 상태면 파이프라인 실행 트리거 (1회)
-  useEffect(() => {
-    if (job?.status === "pending" && !startedRun.current) {
-      startedRun.current = true;
-      fetch(`/api/jobs/${jobId}/run`, { method: "POST" }).finally(fetchStatus);
-    }
-  }, [job?.status, jobId, fetchStatus]);
+  const isPipelineActive = job ? job.status !== "done" && job.status !== "failed" : false;
 
-  // 진행 중이면 3초마다 폴링
+  // 파이프라인은 클라이언트가 /step을 계속 호출해야 진행된다
+  // (긴 작업 하나를 서버에서 붙잡고 있지 않고, 짧은 단위로 쪼개 Vercel 시간제한을 피하기 위함).
+  // effect 내부 지역 변수로 취소 여부를 관리해, 이 effect 인스턴스가 시작한 루프만
+  // 그 cleanup으로 멈춘다(개발 모드 StrictMode의 mount→cleanup→mount 이중 호출에도 안전).
   useEffect(() => {
-    if (!job || job.status === "done" || job.status === "failed") return;
-    const timer = setInterval(fetchStatus, 3000);
-    return () => clearInterval(timer);
-  }, [job, fetchStatus]);
+    if (!isPipelineActive) return;
+    let stopped = false;
+
+    (async () => {
+      await fetch(`/api/jobs/${jobId}/run`, { method: "POST" });
+      while (!stopped) {
+        const res = await fetch(`/api/jobs/${jobId}/step`, { method: "POST" });
+        const data = await res.json().catch(() => ({ done: true }));
+        if (stopped) break;
+        await fetchStatus();
+        if (data.done) break;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    })();
+
+    return () => {
+      stopped = true;
+    };
+  }, [isPipelineActive, jobId, fetchStatus, retryTick]);
 
   // 완료되면 인사이트 로드
   useEffect(() => {
@@ -112,10 +132,10 @@ export function JobDashboard({ jobId }: { jobId: string }) {
     }
   }, [job?.status, jobId]);
 
-  function retry() {
-    startedRun.current = false;
-    fetch(`/api/jobs/${jobId}/run`, { method: "POST" }).finally(fetchStatus);
-    startedRun.current = true;
+  async function retry() {
+    await fetch(`/api/jobs/${jobId}/run`, { method: "POST" });
+    await fetchStatus();
+    setRetryTick((t) => t + 1);
   }
 
   if (!job) {

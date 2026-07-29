@@ -6,6 +6,8 @@ export type CommentRow = {
   textOriginal: string;
   likeCount: number;
   publishedAt: string | null;
+  platform?: "youtube" | "x";
+  url?: string | null;
 };
 
 export type Aggregates = {
@@ -154,6 +156,7 @@ export type CommentSampleItem = {
   purchaseIntent: boolean;
   riskFlag: CommentAnalysisResult["riskFlag"];
   fandomExpressions: string[];
+  platform: "youtube" | "x";
 };
 
 /**
@@ -178,6 +181,7 @@ export function buildCommentSample(
       purchaseIntent: a.purchaseIntent,
       riskFlag: a.riskFlag,
       fandomExpressions: a.fandomExpressions,
+      platform: c.platform ?? "youtube",
     };
   };
 

@@ -1,24 +1,9 @@
+import type { CollectParams, CollectResult, NormalizedPost, NormalizedVideo, PlatformCollector } from "./types";
+import { mapWithConcurrency } from "../concurrency";
+
+const COLLECT_CONCURRENCY = 5;
+
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
-
-export type YoutubeVideo = {
-  videoId: string;
-  channelId: string | null;
-  channelTitle: string | null;
-  title: string | null;
-  description: string | null;
-  publishedAt: string | null;
-  viewCount: number;
-  likeCount: number;
-  commentCount: number;
-};
-
-export type YoutubeComment = {
-  commentId: string;
-  authorDisplay: string | null;
-  textOriginal: string;
-  likeCount: number;
-  publishedAt: string | null;
-};
 
 function apiKey() {
   const key = process.env.YOUTUBE_API_KEY;
@@ -73,8 +58,8 @@ export async function searchVideoIds(
 }
 
 /** 영상 ID 목록으로 상세 메타데이터/통계를 가져온다 (videos.list, 50개씩 배치). */
-export async function getVideoDetails(videoIds: string[]): Promise<YoutubeVideo[]> {
-  const results: YoutubeVideo[] = [];
+export async function getVideoDetails(videoIds: string[]): Promise<NormalizedVideo[]> {
+  const results: NormalizedVideo[] = [];
 
   for (let i = 0; i < videoIds.length; i += 50) {
     const batch = videoIds.slice(i, i + 50);
@@ -108,8 +93,8 @@ export async function getVideoDetails(videoIds: string[]): Promise<YoutubeVideo[
 export async function getVideoComments(
   videoId: string,
   maxComments: number
-): Promise<YoutubeComment[]> {
-  const comments: YoutubeComment[] = [];
+): Promise<NormalizedPost[]> {
+  const comments: NormalizedPost[] = [];
   let pageToken: string | undefined;
 
   while (comments.length < maxComments) {
@@ -132,11 +117,14 @@ export async function getVideoComments(
       const top = item.snippet?.topLevelComment?.snippet;
       if (!top) continue;
       comments.push({
-        commentId: item.snippet.topLevelComment.id,
-        authorDisplay: top.authorDisplayName ?? null,
-        textOriginal: top.textOriginal ?? "",
+        platform: "youtube",
+        externalId: item.snippet.topLevelComment.id,
+        url: `https://www.youtube.com/watch?v=${videoId}&lc=${item.snippet.topLevelComment.id}`,
+        author: null, // 개인정보 최소화 원칙 (PLAN.md 8.2)
+        text: top.textOriginal ?? "",
+        createdAt: top.publishedAt ?? null,
         likeCount: Number(top.likeCount ?? 0),
-        publishedAt: top.publishedAt ?? null,
+        videoId,
       });
     }
 
@@ -146,3 +134,27 @@ export async function getVideoComments(
 
   return comments.slice(0, maxComments);
 }
+
+export const youtubeCollector: PlatformCollector = {
+  platform: "youtube",
+  isConfigured() {
+    return Boolean(process.env.YOUTUBE_API_KEY);
+  },
+  async collect(params: CollectParams): Promise<CollectResult> {
+    if (!this.isConfigured()) {
+      return { configured: false, note: "YOUTUBE_NOT_CONFIGURED", posts: [] };
+    }
+    const maxVideos = params.maxVideos ?? 20;
+    const maxCommentsPerVideo = params.maxCommentsPerVideo ?? 30;
+
+    const videoIds = await searchVideoIds(params.keyword, params.periodStart, params.periodEnd, maxVideos);
+    const videos = await getVideoDetails(videoIds);
+
+    const postChunks = await mapWithConcurrency(videos, COLLECT_CONCURRENCY, async (v) => {
+      const comments = await getVideoComments(v.videoId, maxCommentsPerVideo);
+      return comments.map((c) => ({ ...c, searchQuery: params.keyword }));
+    });
+
+    return { configured: true, posts: postChunks.flat(), videos };
+  },
+};

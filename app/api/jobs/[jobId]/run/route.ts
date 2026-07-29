@@ -1,34 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { searchVideoIds, getVideoDetails, getVideoComments } from "@/lib/youtube";
-import { analyzeCommentBatch, generateJobInsight, COMMENT_BATCH_SIZE } from "@/lib/claude";
-import { computeAggregates, buildCommentSample, type CommentRow } from "@/lib/aggregate";
-import { mapWithConcurrency } from "@/lib/concurrency";
 
-// 유튜브 댓글 수집 / Claude 배치 분석 동시 실행 개수 (Vercel 함수 시간제한 대응)
-const COLLECT_CONCURRENCY = 5;
-const ANALYZE_CONCURRENCY = 5;
-
-export const maxDuration = 300;
-
-type Job = {
-  id: string;
-  keyword: string;
-  period_start: string;
-  period_end: string;
-  max_videos: number;
-  max_comments_per_video: number;
-  status: string;
-};
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function setJobState(admin: any, jobId: string, patch: Record<string, unknown>) {
-  await admin
-    .from("research_jobs")
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("id", jobId);
-}
-
+/**
+ * 파이프라인을 "시작 가능" 상태로만 표시한다. 실제 실행(태스크 생성/처리)은
+ * 클라이언트가 반복 호출하는 /step 라우트에서 이루어진다 (Vercel 함수 시간제한 회피).
+ */
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
@@ -44,206 +20,48 @@ export async function POST(
 
   const { data: job } = await supabase
     .from("research_jobs")
-    .select("id, keyword, period_start, period_end, max_videos, max_comments_per_video, status")
+    .select("id, status")
     .eq("id", jobId)
     .eq("user_id", user.id)
-    .maybeSingle<Job>();
+    .maybeSingle();
 
   if (!job) {
     return NextResponse.json({ error: "Job을 찾을 수 없습니다." }, { status: 404 });
   }
-  if (!["pending", "failed"].includes(job.status)) {
-    return NextResponse.json({ jobId: job.id, status: job.status, skipped: true });
-  }
 
-  const admin = createAdminClient();
+  if (job.status === "failed") {
+    // 실패했던 태스크를 재시도 가능하게 되돌리고, 그 태스크가 속했던 phase로 job 상태를 복원한다.
+    // (처음부터 다시 하지 않고 멈춘 지점부터 이어서 진행하기 위함)
+    const admin = createAdminClient();
+    const { data: failedTasks } = await admin
+      .from("analysis_tasks")
+      .select("id, payload")
+      .eq("job_id", jobId)
+      .eq("status", "failed");
 
-  try {
-    // 1. 영상 수집
-    await setJobState(admin, jobId, { status: "collecting_videos", progress: 5, error_message: null });
-
-    const videoIds = await searchVideoIds(
-      job.keyword,
-      job.period_start,
-      job.period_end,
-      job.max_videos
-    );
-    const videos = await getVideoDetails(videoIds);
-
-    if (videos.length > 0) {
-      const { error: videosError } = await admin.from("youtube_videos").upsert(
-        videos.map((v) => ({
-          job_id: jobId,
-          video_id: v.videoId,
-          channel_id: v.channelId,
-          channel_title: v.channelTitle,
-          title: v.title,
-          description: v.description,
-          published_at: v.publishedAt,
-          view_count: v.viewCount,
-          like_count: v.likeCount,
-          comment_count: v.commentCount,
-        })),
-        { onConflict: "video_id,job_id" }
-      );
-      if (videosError) throw new Error(`영상 저장 실패: ${videosError.message}`);
-    }
-
-    await setJobState(admin, jobId, { status: "collecting_comments", progress: 25 });
-
-    // 2. 댓글 수집 (영상 여러 개를 동시에 처리)
-    let collectedVideos = 0;
-    const commentChunks = await mapWithConcurrency(videos, COLLECT_CONCURRENCY, async (v) => {
-      const comments = await getVideoComments(v.videoId, job.max_comments_per_video);
-      collectedVideos += 1;
-      const pct = 25 + Math.round((collectedVideos / Math.max(videos.length, 1)) * 20);
-      await setJobState(admin, jobId, { progress: pct });
-      return comments.map((c): CommentRow => ({
-        commentId: c.commentId,
-        videoId: v.videoId,
-        textOriginal: c.textOriginal,
-        likeCount: c.likeCount,
-        publishedAt: c.publishedAt,
-      }));
-    });
-    const allComments: CommentRow[] = commentChunks.flat();
-
-    if (allComments.length > 0) {
-      const { error: commentsError } = await admin.from("youtube_comments").upsert(
-        allComments.map((c) => ({
-          job_id: jobId,
-          video_id: c.videoId,
-          comment_id: c.commentId,
-          author_display: null,
-          text_original: c.textOriginal,
-          like_count: c.likeCount,
-          published_at: c.publishedAt,
-        })),
-        { onConflict: "comment_id", ignoreDuplicates: true }
-      );
-      if (commentsError) throw new Error(`댓글 저장 실패: ${commentsError.message}`);
-    }
-
-    // 이 Job 소속으로 실제 저장된 댓글만 분석 대상으로 삼는다 (중복으로 스킵된 건 제외)
-    const { data: storedComments, error: storedError } = await admin
-      .from("youtube_comments")
-      .select("comment_id, video_id, text_original, like_count, published_at")
-      .eq("job_id", jobId);
-    if (storedError) throw new Error(`댓글 조회 실패: ${storedError.message}`);
-
-    const commentRows: CommentRow[] = (storedComments ?? []).map((c) => ({
-      commentId: c.comment_id,
-      videoId: c.video_id,
-      textOriginal: c.text_original,
-      likeCount: c.like_count,
-      publishedAt: c.published_at,
-    }));
-
-    await setJobState(admin, jobId, { status: "analyzing", progress: 50 });
-
-    // 3. 배치 감성/속성 분석 (여러 배치를 동시에 처리)
-    const batches: CommentRow[][] = [];
-    for (let i = 0; i < commentRows.length; i += COMMENT_BATCH_SIZE) {
-      batches.push(commentRows.slice(i, i + COMMENT_BATCH_SIZE));
-    }
-
-    let analyzedComments = 0;
-    const analysesNested = await mapWithConcurrency(batches, ANALYZE_CONCURRENCY, async (batch) => {
-      const batchIds = new Set(batch.map((c) => c.commentId));
-      const rawResults = await analyzeCommentBatch(
-        job.keyword,
-        batch.map((c) => ({ commentId: c.commentId, text: c.textOriginal }))
-      );
-      // 모델이 comment_id를 잘못 옮겨 적어 존재하지 않는 ID를 반환하는 경우가 있어
-      // (FK 위반으로 배치 전체 저장이 실패하는 것을 막기 위해) 요청한 ID 목록에 있는 것만 사용한다.
-      const results = rawResults.filter((r) => batchIds.has(r.commentId));
-
-      if (results.length > 0) {
-        const { error: analysisError } = await admin.from("comment_analysis").upsert(
-          results.map((r) => ({
-            job_id: jobId,
-            comment_id: r.commentId,
-            sentiment: r.sentiment,
-            purchase_intent: r.purchaseIntent,
-            ad_reaction: r.adReaction,
-            risk_flag: r.riskFlag,
-            extracted_keywords: r.extractedKeywords,
-            fandom_expressions: r.fandomExpressions,
-            raw_json: r,
-            model_version: "claude-haiku-4-5-20251001",
-          })),
-          { onConflict: "comment_id" }
+    if (failedTasks && failedTasks.length > 0) {
+      await admin
+        .from("analysis_tasks")
+        .update({ status: "pending", attempt_count: 0, last_error: null })
+        .in(
+          "id",
+          failedTasks.map((t) => t.id)
         );
-        // 배치 하나가 실패해도(예: 예상치 못한 데이터 문제) 이미 수집/과금된 나머지
-        // 배치 작업을 버리지 않도록 job 전체를 실패시키지 않고 건너뛴다.
-        if (analysisError) {
-          console.error(`[run] 배치 분석 저장 실패 (건너뜀): ${analysisError.message}`);
-        }
-      }
 
-      analyzedComments += batch.length;
-      const pct = 50 + Math.round((analyzedComments / Math.max(commentRows.length, 1)) * 35);
-      await setJobState(admin, jobId, { progress: Math.min(pct, 85) });
-
-      return results;
-    });
-    const analyses = analysesNested.flat();
-
-    // 4. 집계 + 종합 인사이트 (IP 인텔리전스 리포트)
-    const aggregates = computeAggregates(commentRows, analyses);
-    const commentSample = buildCommentSample(commentRows, analyses);
-
-    const generated = await generateJobInsight({
-      keyword: job.keyword,
-      periodStart: job.period_start,
-      periodEnd: job.period_end,
-      videoCount: videos.length,
-      commentCount: commentRows.length,
-      topKeywords: aggregates.topKeywords,
-      sentimentRatio: aggregates.sentimentRatio,
-      dailyTrend: aggregates.dailyTrend,
-      purchaseIntentPositiveRatio: aggregates.purchaseIntentSummary.positiveRatio,
-      riskGroups: aggregates.riskGroups.map((g) => ({
-        level: g.level,
-        count: g.count,
-        examples: g.examples,
-      })),
-      commentSample,
-    });
-
-    // 리스크 카드는 리포트 16번 섹션(Risk & Misperception)과 별개로,
-    // 대시보드용 요약 라벨은 집계 데이터에서 직접 생성한다.
-    const riskAlerts = aggregates.riskGroups.map((g) => ({
-      level: g.level,
-      description: `${g.level === "high_risk" ? "고위험" : "주의"} 댓글 ${g.count}건 발견 — 상세 내용은 위 리포트 "17. Risk & Misperception" 참고`,
-      example_comment_id: g.exampleCommentIds[0] ?? null,
-    }));
-
-    await setJobState(admin, jobId, { progress: 95 });
-
-    const { error: insightError } = await admin.from("job_insights").upsert(
-      {
-        job_id: jobId,
-        summary_text: generated.summaryText,
-        top_keywords: aggregates.topKeywords,
-        sentiment_ratio: aggregates.sentimentRatio,
-        daily_trend: aggregates.dailyTrend,
-        fandom_highlights: aggregates.fandomHighlights,
-        purchase_intent_summary: aggregates.purchaseIntentSummary,
-        risk_alerts: riskAlerts,
-        raw_json: { aggregates, generated },
-        model_version: "claude-sonnet-5",
-      },
-      { onConflict: "job_id" }
-    );
-    if (insightError) throw new Error(`인사이트 저장 실패: ${insightError.message}`);
-
-    await setJobState(admin, jobId, { status: "done", progress: 100 });
-
-    return NextResponse.json({ jobId, status: "done" });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "알 수 없는 오류";
-    await setJobState(admin, jobId, { status: "failed", error_message: message });
-    return NextResponse.json({ error: message }, { status: 500 });
+      const resumePhase =
+        (failedTasks[0].payload as { phase?: string } | null)?.phase ?? "collect";
+      await admin
+        .from("research_jobs")
+        .update({ status: resumePhase, error_message: null })
+        .eq("id", jobId);
+    } else {
+      // 실패한 태스크를 못 찾으면(이례적) 안전하게 처음부터 다시 시작
+      await admin
+        .from("research_jobs")
+        .update({ status: "collect", error_message: null, progress: 0 })
+        .eq("id", jobId);
+    }
   }
+
+  return NextResponse.json({ jobId: job.id, status: job.status, started: true });
 }
