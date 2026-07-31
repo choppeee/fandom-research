@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["pdfkit"],
+  serverExternalPackages: ["puppeteer-core", "@sparticuz/chromium", "puppeteer"],
 };
 
 module.exports = nextConfig;

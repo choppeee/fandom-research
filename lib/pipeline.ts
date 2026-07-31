@@ -6,6 +6,7 @@ import { computeAggregates, buildCommentSample, type CommentRow, type CommentSam
 import { MODULE_DEFINITIONS, runAnalysisModule } from "./analysis-modules";
 import { runPlatformModule, runSynthesisModule } from "./synthesis-modules";
 import { searchValidatedReferences, type ValidatedReference } from "./reference-search";
+import { extractVisualData } from "./visual-data";
 import {
   claimNextTask,
   completeTask,
@@ -32,6 +33,7 @@ const PHASE_ORDER = [
   "strategy_actions",
   "reference",
   "executive_summary",
+  "visual_data",
   "assemble",
 ] as const;
 type Phase = (typeof PHASE_ORDER)[number];
@@ -48,6 +50,7 @@ const PHASE_START_PROGRESS: Record<Phase, number> = {
   strategy_actions: 89,
   reference: 93,
   executive_summary: 95,
+  visual_data: 97,
   assemble: 98,
 };
 
@@ -275,6 +278,10 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
       ]);
       return;
 
+    case "visual_data":
+      await enqueueTasks(admin, job.id, [{ type: "visual_data", payload: { phase: "visual_data" } }]);
+      return;
+
     case "assemble":
       await enqueueTasks(admin, job.id, [{ type: "assemble", payload: { phase: "assemble" } }]);
       return;
@@ -355,11 +362,11 @@ async function getStoredStatsAndSample(
     dailyTrend: insight?.daily_trend ?? [],
     fandomHighlights: insight?.fandom_highlights ?? [],
     purchaseIntentSummary: insight?.purchase_intent_summary ?? { positiveRatio: 0, examples: [] },
-    riskGroups: (insight?.risk_alerts ?? []).map((r: { level: "caution" | "high_risk" }) => ({
+    riskGroups: (insight?.risk_alerts ?? []).map((r: { level: "caution" | "high_risk"; count?: number; example_comment_id?: string | null }) => ({
       level: r.level,
-      count: 0,
+      count: r.count ?? 0,
       examples: [],
-      exampleCommentIds: [],
+      exampleCommentIds: r.example_comment_id ? [r.example_comment_id] : [],
     })),
   };
   const sample = raw.sample ?? [];
@@ -569,6 +576,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
           purchase_intent_summary: stats.purchaseIntentSummary,
           risk_alerts: stats.riskGroups.map((g) => ({
             level: g.level,
+            count: g.count,
             description: `${g.level === "high_risk" ? "고위험" : "주의"} 댓글/게시물 ${g.count}건 발견`,
             example_comment_id: g.exampleCommentIds[0] ?? null,
           })),
@@ -721,6 +729,17 @@ CURRENT/HIDDEN/OPPORTUNITY/AUDIENCE/TRIGGER/POSITIONING/ACTION 질문에 각각 
       maxTokens: 3000,
     });
     await saveModule(admin, job.id, "executive_summary", null, result);
+    return;
+  }
+
+  if (task.task_type === "visual_data") {
+    const modules = await getAllModules(admin, job.id);
+    const visualData = await extractVisualData({
+      keyword: job.keyword,
+      modules: modules.map((m) => ({ title: m.title, content: m.content_md })),
+    });
+    const { error } = await admin.from("job_insights").update({ visual_data: visualData }).eq("job_id", job.id);
+    if (error) console.error(`[visual_data] 저장 실패: ${error.message}`);
     return;
   }
 

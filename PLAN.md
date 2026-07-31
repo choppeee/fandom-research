@@ -360,6 +360,11 @@ create index if not exists idx_analysis_modules_job on job_analysis_modules(job_
 -- job_insights: 검증된 외부 레퍼런스(실제 검색 결과 URL만)
 alter table job_insights add column if not exists research_references jsonb;
 
+-- job_insights: PDF 시각화 페이지(Diagnostic/Funnel/Character Architecture/
+-- Opportunity Matrix)용 구조화 데이터. 기존 분석 모듈을 근거로 추출하며,
+-- 근거 없는 항목은 비워둔다(추측 금지 원칙).
+alter table job_insights add column if not exists visual_data jsonb;
+
 -- 태스크 큐 조회 성능용 복합 인덱스
 create index if not exists idx_tasks_job_status on analysis_tasks(job_id, status);
 

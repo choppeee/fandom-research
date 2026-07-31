@@ -14,6 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
   strategy_actions: "전략 생성 중",
   reference: "레퍼런스 검색 중",
   executive_summary: "요약 작성 중",
+  visual_data: "시각화 데이터 추출 중",
   assemble: "리포트 조립 중",
   done: "완료",
   failed: "실패",
