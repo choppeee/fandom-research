@@ -28,7 +28,7 @@ export async function signIn(
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect("/dashboard");
 }
 
 export async function signUp(
@@ -58,7 +58,7 @@ export async function signUp(
   // Supabase 프로젝트의 "Confirm email" 설정이 꺼져 있으면 가입과 동시에 세션이 생성됨
   if (data.session) {
     revalidatePath("/", "layout");
-    redirect("/");
+    redirect("/dashboard");
   }
 
   return {
@@ -71,5 +71,5 @@ export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   revalidatePath("/", "layout");
-  redirect("/login");
+  redirect("/");
 }

@@ -26,7 +26,7 @@ export default async function JobPage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-8">
       <header className="flex w-full max-w-4xl items-center justify-between">
-        <Link href="/" className="text-sm underline underline-offset-2">
+        <Link href="/dashboard" className="text-sm underline underline-offset-2">
           ← 홈
         </Link>
         <Link href="/jobs" className="text-sm underline underline-offset-2">

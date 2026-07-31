@@ -37,7 +37,7 @@ export default async function JobsListPage() {
     <main className="flex min-h-screen flex-col items-center gap-6 p-8">
       <header className="flex w-full max-w-3xl items-center justify-between">
         <h1 className="text-xl font-bold">내 리서치 목록</h1>
-        <Link href="/" className="text-sm underline underline-offset-2">
+        <Link href="/dashboard" className="text-sm underline underline-offset-2">
           ← 새 리서치 시작
         </Link>
       </header>
