@@ -108,12 +108,23 @@ export function JobDashboard({ jobId }: { jobId: string }) {
     (async () => {
       await fetch(`/api/jobs/${jobId}/run`, { method: "POST" });
       while (!stopped) {
-        const res = await fetch(`/api/jobs/${jobId}/step`, { method: "POST" });
-        const data = await res.json().catch(() => ({ done: true }));
+        // 네트워크 오류나 함수 타임아웃(예: 컨텍스트가 큰 태스크)으로 요청 자체가
+        // 실패해도 "완료"로 오인해 루프를 멈추지 않는다 - 잠시 후 그냥 다시 시도한다.
+        // (죽은 태스크는 서버의 stale-recovery가 다음 /step 호출 때 되돌려놓는다)
+        let done = false;
+        try {
+          const res = await fetch(`/api/jobs/${jobId}/step`, { method: "POST" });
+          if (res.ok) {
+            const data = await res.json();
+            done = Boolean(data.done);
+          }
+        } catch {
+          // 네트워크 오류 - 아래에서 재시도
+        }
         if (stopped) break;
         await fetchStatus();
-        if (data.done) break;
-        await new Promise((r) => setTimeout(r, 250));
+        if (done) break;
+        await new Promise((r) => setTimeout(r, 1000));
       }
     })();
 

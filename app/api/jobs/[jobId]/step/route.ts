@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { stepJob } from "@/lib/pipeline";
 
-export const maxDuration = 60;
+// 모듈/종합 태스크 중 컨텍스트가 큰 것(strategy_actions_ideas, executive_summary 등)은
+// 60초를 넘길 수 있어 여유 있게 잡는다. Vercel Hobby 플랜의 상한(기본 300초, Fluid Compute
+// 활성화 시)을 넘지 않는 선으로 설정.
+export const maxDuration = 180;
 
 type Job = {
   id: string;
