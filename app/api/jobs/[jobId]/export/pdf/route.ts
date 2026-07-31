@@ -116,8 +116,17 @@ export async function GET(
     finalConclusionMd: conclusion,
   };
 
-  const html = buildReportHtml(reportData);
-  const pdfBuffer = await renderHtmlToPdf(html);
+  let pdfBuffer: Buffer;
+  try {
+    const html = buildReportHtml(reportData);
+    pdfBuffer = await renderHtmlToPdf(html);
+  } catch (err) {
+    console.error("PDF generation failed", err);
+    return NextResponse.json(
+      { error: "PDF 생성 중 오류가 발생했습니다.", detail: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
 
   return new NextResponse(new Uint8Array(pdfBuffer), {
     headers: {
