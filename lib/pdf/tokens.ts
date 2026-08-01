@@ -1,39 +1,41 @@
 /** PDF 리포트 디자인 시스템 토큰. 모든 페이지 템플릿/차트가 이 값만 사용한다.
- * 원칙: 색이 디자인을 만들지 않는다. 배경은 white/near-white, 퍼플은 accent로만 쓴다. */
+ * Black & Red Intelligence Design System - 웹(app/globals.css)과 같은 팔레트를 쓴다.
+ * 원칙: 배경은 warm off-white, Red는 CTA/핵심 강조/위험에만 절제해서 쓴다. */
 export const COLORS = {
-  primary: "#6F4CF6", // accent 전용 (CTA, 핵심 숫자, 차트 주 계열, 배지)
-  primaryTint: "#F1EDFE",
-  background: "#FAFAFC",
+  primary: "#E3262E", // accent 전용 (CTA, 핵심 숫자, 차트 주 계열, 배지) - brand Red
+  primaryTint: "#FBEAEC",
+  background: "#F7F7F5",
   surface: "#FFFFFF",
-  panelTint: "#F7F6F9", // 순중립 패널 배경 (더 이상 보라색 틴트 아님)
-  text: "#17151F",
-  textMuted: "#686371",
-  border: "#E7E4EC",
+  panelTint: "#F1F1EE",
+  text: "#111111",
+  textMuted: "#5E5E5E",
+  border: "#E3E3E0",
   positive: "#16A34A",
   positiveTint: "#EAF7EE",
   warning: "#D97706",
   warningTint: "#FDF3E4",
-  risk: "#DC2626",
-  riskTint: "#FBEAEA",
-  neutralChart: "#ADA9B8",
+  risk: "#E3262E",
+  riskTint: "#FBEAEC",
+  neutralChart: "#8B8B8B",
 } as const;
 
-/** 순중립 그레이 스케일 (더 이상 라벤더 틴트 없음). */
+/** 순중립 그레이 스케일. */
 export const GRAY = {
   50: "#FAFAFA",
-  100: "#F2F1F5",
-  200: "#E7E4EC",
-  300: "#D3D0DA",
-  400: "#ADA9B8",
-  500: "#8A8594",
-  600: "#686371",
-  700: "#4A4650",
-  800: "#2E2B33",
-  900: "#17151F",
+  100: "#F1F1EE",
+  200: "#E3E3E0",
+  300: "#D3D0CA",
+  400: "#B8B8B3",
+  500: "#8B8B8B",
+  600: "#5E5E5E",
+  700: "#4A4A4A",
+  800: "#2E2E2E",
+  900: "#111111",
 } as const;
 
-/** IP별로 살짝 다른 accent를 순환 배정한다 (전체 톤은 유지, IP 구분만 되도록). */
-const ACCENT_PALETTE = ["#0D9488", "#2563EB", "#DB2777", "#CA8A04", "#059669", "#6F4CF6"];
+/** 키워드별로 accent를 살짝 다르게 배정하되, Black & Red 시스템 안에서만 순환한다(브랜드 Red +
+ * 근접한 딥레드/블랙 톤) - 이전처럼 청록/파랑/핑크 등 시스템 밖 색을 쓰지 않는다. */
+const ACCENT_PALETTE = ["#E3262E", "#A9151C", "#111111"];
 export function accentForKeyword(keyword: string): string {
   let hash = 0;
   for (let i = 0; i < keyword.length; i++) hash = (hash * 31 + keyword.charCodeAt(i)) >>> 0;

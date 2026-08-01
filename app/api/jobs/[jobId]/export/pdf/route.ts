@@ -9,6 +9,7 @@ import type { ReportMode } from "@/lib/report-mode";
 import { loadEvidenceSource } from "@/lib/evidence-resolve";
 import { buildPdfEvidenceMap } from "@/lib/pdf/evidence-resolve";
 import { qrDataUri } from "@/lib/pdf/qrcode";
+import { loadReportModel } from "@/lib/report/buildReportModel";
 
 export const maxDuration = 90;
 
@@ -104,6 +105,22 @@ export async function GET(
   const execParsed = execModule ? parseStoredModuleContent(execModule.content_md ?? "") : null;
   const executiveSummary =
     execParsed && execParsed.kind === "executive_summary" ? execParsed.data : EMPTY_EXECUTIVE_SUMMARY;
+
+  // 웹과 PDF가 같은 판단을 보여주도록, "핵심 한 문장"은 raw finalSentence를 그대로 쓰지 않고
+  // 웹과 동일한 buildReportModel()의 executiveDecision에서 가져온다(예: finalSentence가
+  // "이 IP는 ______로 포지셔닝해야 한다."처럼 빈칸으로 남았을 때 웹은 자동으로 대체 문장을
+  // 쓰는데 PDF만 빈칸 그대로 노출되는 불일치를 막는다).
+  const reportModel = await loadReportModel(admin, jobId, {
+    keyword: job.keyword,
+    period_start: job.period_start,
+    period_end: job.period_end,
+  });
+  if (reportModel.executiveDecision) {
+    executiveSummary.finalSentence = reportModel.executiveDecision.headline;
+    if (!executiveSummary.currentSituation && reportModel.executiveDecision.kind === "decision") {
+      executiveSummary.currentSituation = reportModel.executiveDecision.currentSituation;
+    }
+  }
 
   const stats: Aggregates = {
     topKeywords: insight?.top_keywords ?? [],
