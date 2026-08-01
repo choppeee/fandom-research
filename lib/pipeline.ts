@@ -4,9 +4,16 @@ import type { NormalizedPost } from "./collectors/types";
 import { analyzeCommentBatch, COMMENT_BATCH_SIZE } from "./claude";
 import { computeAggregates, buildCommentSample, type CommentRow, type CommentSampleItem, type Aggregates } from "./aggregate";
 import { MODULE_DEFINITIONS, runAnalysisModule } from "./analysis-modules";
-import { runPlatformModule, runSynthesisModule } from "./synthesis-modules";
+import {
+  runPlatformModule,
+  runInsightSynthesis,
+  runPositioningSynthesis,
+  runStrategySynthesis,
+  runExecutiveSummarySynthesis,
+} from "./synthesis-modules";
 import { searchValidatedReferences, type ValidatedReference } from "./reference-search";
 import { extractVisualData } from "./visual-data";
+import { wrapStoredContent, renderStoredContentToMarkdown } from "./insight-types";
 import {
   claimNextTask,
   completeTask,
@@ -383,6 +390,11 @@ async function getAllModules(admin: SupabaseClient, jobId: string) {
   return (data ?? []) as { module_key: string; platform: string | null; title: string; content_md: string }[];
 }
 
+/** 이전 단계 모듈들을 다음 LLM 호출의 프롬프트 컨텍스트로 넣기 위한 텍스트로 변환 (신규 구조화/레거시 마크다운 모두 처리). */
+function modulesToPromptText(modules: { title: string; content_md: string }[]): string {
+  return modules.map((m) => renderStoredContentToMarkdown(m.title, m.content_md)).join("\n\n---\n\n");
+}
+
 async function saveModule(
   admin: SupabaseClient,
   jobId: string,
@@ -602,7 +614,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
     if (!def) return;
 
     const { stats, sample, platforms } = await getStoredStatsAndSample(admin, job.id);
-    const result = await runAnalysisModule(def, {
+    const { title, result } = await runAnalysisModule(def, {
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
@@ -610,7 +622,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       stats,
       sample,
     });
-    await saveModule(admin, job.id, def.key, null, result);
+    await saveModule(admin, job.id, def.key, null, { title, content: wrapStoredContent({ kind: "insights", data: result }) });
     return;
   }
 
@@ -620,7 +632,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
     const filteredSample = sample.filter((s) => s.platform === platform);
     if (platform === "x" && filteredSample.length === 0) return; // X 데이터 없으면 스킵
 
-    const result = await runPlatformModule({
+    const { title, result } = await runPlatformModule({
       platform,
       keyword: job.keyword,
       periodStart: job.period_start,
@@ -628,7 +640,10 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       stats,
       sample: filteredSample.length ? filteredSample : sample,
     });
-    await saveModule(admin, job.id, `platform_${platform}`, platform, result);
+    await saveModule(admin, job.id, `platform_${platform}`, platform, {
+      title,
+      content: wrapStoredContent({ kind: "insights", data: result }),
+    });
     return;
   }
 
@@ -638,60 +653,50 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
     const x = modules.find((m) => m.module_key === "platform_x");
     if (!yt || !x) return;
 
-    const result = await runSynthesisModule({
+    const result = await runInsightSynthesis({
       title: "Cross-Platform Insight",
       instruction: `YouTube와 X 두 플랫폼의 분석을 비교하여 AGREEMENT(공통 인식), PLATFORM-SPECIFIC(특정 플랫폼에서만 강한 인식),
 CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체를 전략적 Insight로 활용하라.`,
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
-      inputModules: [
-        { title: yt.title, content: yt.content_md },
-        { title: x.title, content: x.content_md },
-      ],
+      inputModulesText: modulesToPromptText([yt, x]),
       maxTokens: 2500,
     });
-    await saveModule(admin, job.id, "cross_platform", "cross", result);
+    await saveModule(admin, job.id, "cross_platform", "cross", {
+      title: "Cross-Platform Insight",
+      content: wrapStoredContent({ kind: "insights", data: result }),
+    });
     return;
   }
 
   if (task.task_type === "positioning_strategy") {
     const modules = await getAllModules(admin, job.id);
-    const result = await runSynthesisModule({
-      title: "Positioning Opportunities & Recommended Position",
-      instruction: `모든 분석 모듈을 종합해 KEEP(이미 강한 가치) / DISCOVER(발견됐지만 미활용) / CREATE(확장 가능한 새 포지션)로
-정리하고, 각 항목에 데이터 근거를 붙여라. 이어서 Positioning 후보 3~5개(각각 Audience Need/데이터 근거/심리적 매력/차별성/
-확장성/리스크/실행 방법 포함)를 제안하고, 마지막에 CORE/SUPPORTING/EMERGING Position을 확정하라. 추상적 문장("소통을
-강화해야 한다" 등)은 금지, 반드시 "누구에게/어떤 상황에서/어떤 포맷으로"까지 구체화하라.`,
+    const result = await runPositioningSynthesis({
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
-      inputModules: modules.map((m) => ({ title: m.title, content: m.content_md })),
-      maxTokens: 4000,
+      inputModulesText: modulesToPromptText(modules),
     });
-    await saveModule(admin, job.id, "positioning_strategy", null, result);
+    await saveModule(admin, job.id, "positioning_strategy", null, {
+      title: "Positioning Opportunities & Recommended Position",
+      content: wrapStoredContent({ kind: "positioning", data: result }),
+    });
     return;
   }
 
   if (task.task_type === "strategy_actions_ideas") {
     const modules = await getAllModules(admin, job.id);
-    const positioning = modules.find((m) => m.module_key === "positioning_strategy");
-    const result = await runSynthesisModule({
-      title: "Strategic Actions & Opportunity Ideas",
-      instruction: `확정된 Positioning을 실행으로 연결하라. Strategic Action 최소 5개(각각 "어떤 매력을 → 누구에게 → 어떤
-상황에서 → 어떤 포맷으로 → 누구와 함께 → 어떤 순서로 보여줄지 → 어떤 반응을 기대하는지"까지 구체화, 추상적 문장 금지)와,
-Opportunity Idea 최소 10개(각각 Idea/Target Insight/Audience/Concept/Character-Position/Expected Reaction/Viral Point
-형식)를 제시하라. 모든 아이디어는 앞선 분석 결과 중 하나 이상과 연결되어야 한다.`,
+    const result = await runStrategySynthesis({
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
-      inputModules: [
-        ...(positioning ? [{ title: positioning.title, content: positioning.content_md }] : []),
-        ...modules.filter((m) => m.module_key !== "positioning_strategy").map((m) => ({ title: m.title, content: m.content_md })),
-      ],
-      maxTokens: 4500,
+      inputModulesText: modulesToPromptText(modules),
     });
-    await saveModule(admin, job.id, "strategy_actions_ideas", null, result);
+    await saveModule(admin, job.id, "strategy_actions_ideas", null, {
+      title: "Strategic Actions & Opportunity Ideas",
+      content: wrapStoredContent({ kind: "strategy", data: result }),
+    });
     return;
   }
 
@@ -713,22 +718,16 @@ Opportunity Idea 최소 10개(각각 Idea/Target Insight/Audience/Concept/Charac
 
   if (task.task_type === "executive_summary") {
     const modules = await getAllModules(admin, job.id);
-    const result = await runSynthesisModule({
-      title: "Executive Summary & Final Strategic Conclusion",
-      instruction: `모든 모듈을 종합해 최소 5~8개의 핵심 발견(Executive Summary)을 작성하라. 각 발견은
-"INSIGHT 0N: 한 문장 결론 / Evidence: / Why it matters: / Strategic implication:" 형식으로 쓴다.
-이 섹션은 반드시 "## Executive Summary"로 시작하라.
-그 다음, 완전히 별도 섹션으로 "## Final Strategic Conclusion"을 작성하고 그 안에서
-CURRENT/HIDDEN/OPPORTUNITY/AUDIENCE/TRIGGER/POSITIONING/ACTION 질문에 각각 답한 뒤,
-마지막 줄을 정확히 "이 IP는 ______로 포지셔닝해야 한다." 형식의 한 문장으로 마무리하라.
-두 섹션 사이에는 다른 내용을 넣지 마라(리포트 조립 시 이 두 섹션을 분리해서 배치한다).`,
+    const result = await runExecutiveSummarySynthesis({
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
-      inputModules: modules.map((m) => ({ title: m.title, content: m.content_md })),
-      maxTokens: 3000,
+      inputModulesText: modulesToPromptText(modules),
     });
-    await saveModule(admin, job.id, "executive_summary", null, result);
+    await saveModule(admin, job.id, "executive_summary", null, {
+      title: "Executive Summary",
+      content: wrapStoredContent({ kind: "executive_summary", data: result }),
+    });
     return;
   }
 
@@ -736,7 +735,7 @@ CURRENT/HIDDEN/OPPORTUNITY/AUDIENCE/TRIGGER/POSITIONING/ACTION 질문에 각각 
     const modules = await getAllModules(admin, job.id);
     const visualData = await extractVisualData({
       keyword: job.keyword,
-      modules: modules.map((m) => ({ title: m.title, content: m.content_md })),
+      modules: modules.map((m) => ({ title: m.title, content: renderStoredContentToMarkdown(m.title, m.content_md) })),
     });
     const { error } = await admin.from("job_insights").update({ visual_data: visualData }).eq("job_id", job.id);
     if (error) console.error(`[visual_data] 저장 실패: ${error.message}`);
@@ -770,13 +769,6 @@ const REPORT_ORDER = [
   "positioning_strategy",
   "strategy_actions_ideas",
 ];
-
-function splitExecutiveSummary(content: string): { summary: string; conclusion: string } {
-  const marker = "## Final Strategic Conclusion";
-  const idx = content.indexOf(marker);
-  if (idx === -1) return { summary: content, conclusion: "" };
-  return { summary: content.slice(0, idx).trim(), conclusion: content.slice(idx).trim() };
-}
 
 function renderReferences(refs: ValidatedReference[]): string {
   if (!refs.length) return "";
@@ -813,9 +805,9 @@ async function assembleReport(admin: SupabaseClient, job: Job) {
     .eq("job_id", job.id);
 
   const execModule = byKey.get("executive_summary");
-  const { summary, conclusion } = execModule
-    ? splitExecutiveSummary(execModule.content_md)
-    : { summary: "", conclusion: "" };
+  const summary = execModule
+    ? renderStoredContentToMarkdown(execModule.title, execModule.content_md)
+    : "## Executive Summary\n\n데이터 부족으로 생성되지 않았습니다.";
 
   const methodology = `## Methodology & Data Scope
 
@@ -827,11 +819,13 @@ async function assembleReport(admin: SupabaseClient, job: Job) {
 
   const sections: string[] = [
     `# "${job.keyword}" IP 인텔리전스 리포트`,
-    summary || "## Executive Summary\n\n데이터 부족으로 생성되지 않았습니다.",
+    summary,
     methodology,
-    ...REPORT_ORDER.map((key) => byKey.get(key)?.content_md).filter((v): v is string => Boolean(v)),
+    ...REPORT_ORDER.map((key) => {
+      const m = byKey.get(key);
+      return m ? renderStoredContentToMarkdown(m.title, m.content_md) : undefined;
+    }).filter((v): v is string => Boolean(v)),
     renderReferences((job_insight?.research_references as ValidatedReference[] | null) ?? []),
-    conclusion,
   ].filter(Boolean);
 
   const finalMarkdown = sections.join("\n\n---\n\n");

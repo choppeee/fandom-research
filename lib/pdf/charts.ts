@@ -113,9 +113,10 @@ export function stackedBarChart(
 /** 양극 축 (Perception Map). */
 export function bipolarAxisChart(
   axes: { leftLabel: string; rightLabel: string; position: number; note?: string }[],
-  opts: { width: number } = { width: 620 }
+  opts: { width: number; color?: string } = { width: 620 }
 ): string {
   if (axes.length === 0) return `<div class="chart-empty">표시할 데이터가 없습니다</div>`;
+  const color = opts.color ?? COLORS.primary;
   const rowHeight = 54;
   const height = axes.length * rowHeight;
   const trackX = 130;
@@ -128,7 +129,7 @@ export function bipolarAxisChart(
       return `
       <text x="${trackX - 10}" y="${y + 4}" text-anchor="end" font-size="11" fill="${GRAY[700]}">${esc(axis.leftLabel)}</text>
       <line x1="${trackX}" y1="${y}" x2="${trackX + trackWidth}" y2="${y}" stroke="${GRAY[200]}" stroke-width="3" stroke-linecap="round"/>
-      <circle cx="${px.toFixed(1)}" cy="${y}" r="7" fill="${COLORS.primary}" />
+      <circle cx="${px.toFixed(1)}" cy="${y}" r="7" fill="${color}" />
       <text x="${trackX + trackWidth + 10}" y="${y + 4}" font-size="11" fill="${GRAY[700]}">${esc(axis.rightLabel)}</text>
     `;
     })
@@ -140,16 +141,16 @@ export function bipolarAxisChart(
 /** 오디언스 퍼널. */
 export function funnelChart(
   stages: { stage: string; trigger?: string | null; strength?: string }[],
-  opts: { width: number } = { width: 1080 }
+  opts: { width: number; color?: string } = { width: 1080 }
 ): string {
   if (stages.length === 0) return `<div class="chart-empty">표시할 데이터가 없습니다</div>`;
   const n = stages.length;
   const gap = 14;
   const segW = (opts.width - gap * (n - 1)) / n;
   const height = 120;
+  const accent = opts.color ?? COLORS.primary;
 
-  const strengthColor = (s?: string) =>
-    s === "high" ? COLORS.primary : s === "medium" ? "#B39DDB" : s === "low" ? GRAY[300] : GRAY[200];
+  const strengthColor = (s?: string) => (s === "high" ? accent : s === "medium" ? `${accent}80` : s === "low" ? GRAY[300] : GRAY[200]);
 
   const blocks = stages
     .map((s, i) => {
@@ -173,23 +174,41 @@ export function funnelChart(
   return `<svg width="${opts.width}" height="${height}" viewBox="0 0 ${opts.width} ${height}" xmlns="http://www.w3.org/2000/svg">${blocks}${arrows}</svg>`;
 }
 
-/** 2x2 오퍼튜니티 매트릭스 (산점도). */
+/** 2x2 매트릭스 (산점도). 사분면 이름 + 번호가 붙은 버블. 라벨은 그래프 안에 직접 넣지 않고 번호만 표기 -
+ * 실제 라벨 텍스트는 페이지 템플릿에서 번호별 사이드 리스트로 렌더링한다. */
 export function matrix2x2(
-  points: { label: string; x: number; y: number }[],
-  opts: { width: number; height: number; xLabel: string; yLabel: string }
+  points: { x: number; y: number; color?: string }[],
+  opts: {
+    width: number;
+    height: number;
+    xLabel: string;
+    yLabel: string;
+    quadrants?: { topRight: string; topLeft: string; bottomRight: string; bottomLeft: string };
+  }
 ): string {
-  const { width, height, xLabel, yLabel } = opts;
-  const pad = 60;
+  const { width, height, xLabel, yLabel, quadrants } = opts;
+  const pad = 64;
   const plotW = width - pad * 2;
   const plotH = height - pad * 2;
 
+  const quadrantLabels = quadrants
+    ? `
+    <text x="${pad + plotW * 0.75}" y="${pad + 16}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.topRight)}</text>
+    <text x="${pad + plotW * 0.25}" y="${pad + 16}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.topLeft)}</text>
+    <text x="${pad + plotW * 0.75}" y="${pad + plotH - 8}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.bottomRight)}</text>
+    <text x="${pad + plotW * 0.25}" y="${pad + plotH - 8}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.bottomLeft)}</text>
+  `
+    : "";
+
   const dots = points
-    .map((p) => {
+    .map((p, i) => {
       const px = pad + (Math.max(0, Math.min(100, p.x)) / 100) * plotW;
       const py = pad + plotH - (Math.max(0, Math.min(100, p.y)) / 100) * plotH;
+      const color = p.color ?? COLORS.primary;
       return `
-      <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="7" fill="${COLORS.primary}" fill-opacity="0.85" />
-      <text x="${px.toFixed(1)}" y="${(py - 12).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="${GRAY[700]}">${esc(p.label)}</text>
+      <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="13" fill="${color}" fill-opacity="0.14" />
+      <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="9" fill="${color}" />
+      <text x="${px.toFixed(1)}" y="${(py + 3.5).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="white">${i + 1}</text>
     `;
     })
     .join("");
@@ -198,18 +217,124 @@ export function matrix2x2(
     <rect x="${pad}" y="${pad}" width="${plotW}" height="${plotH}" fill="none" stroke="${GRAY[200]}" stroke-width="1.5" />
     <line x1="${pad + plotW / 2}" y1="${pad}" x2="${pad + plotW / 2}" y2="${pad + plotH}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
     <line x1="${pad}" y1="${pad + plotH / 2}" x2="${pad + plotW}" y2="${pad + plotH / 2}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
+    ${quadrantLabels}
     <text x="${pad + plotW / 2}" y="${height - 16}" text-anchor="middle" font-size="12" fill="${GRAY[600]}">${esc(xLabel)}</text>
     <text x="18" y="${pad + plotH / 2}" text-anchor="middle" font-size="12" fill="${GRAY[600]}" transform="rotate(-90 18 ${pad + plotH / 2})">${esc(yLabel)}</text>
     ${dots}
   </svg>`;
 }
 
+/** 리스크 매트릭스: X=발생 빈도/근거 강도, Y=심각도. matrix2x2를 리스크 전용 사분면 이름으로 감싼 것. */
+export function riskMatrixChart(
+  points: { severity: number; likelihood: number }[],
+  opts: { width: number; height: number } = { width: 460, height: 340 }
+): string {
+  return matrix2x2(
+    points.map((p) => ({ x: p.likelihood, y: p.severity, color: COLORS.risk })),
+    {
+      ...opts,
+      xLabel: "근거 강도 / 반복성",
+      yLabel: "심각도",
+      quadrants: { topRight: "긴급 대응", topLeft: "주시 필요", bottomRight: "관리 가능", bottomLeft: "낮은 우선순위" },
+    }
+  );
+}
+
+/** 관계 네트워크 다이어그램 (중심 노드 + 관계 노드들, 노드 크기는 강도에 비례). */
+export function relationshipNetwork(
+  center: string,
+  nodes: { label: string; strength: number }[],
+  opts: { width: number; height: number; color?: string } = { width: 520, height: 320 }
+): string {
+  if (nodes.length === 0) return `<div class="chart-empty">표시할 데이터가 없습니다</div>`;
+  const { width, height } = opts;
+  const color = opts.color ?? COLORS.primary;
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = Math.min(width, height) / 2 - 70;
+
+  const items = nodes.slice(0, 6).map((n, i) => {
+    const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
+    const nx = cx + r * Math.cos(angle);
+    const ny = cy + r * Math.sin(angle);
+    const nodeR = 8 + Math.max(0, Math.min(100, n.strength)) * 0.16;
+    return { nx, ny, nodeR, label: n.label };
+  });
+
+  const lines = items
+    .map((n) => `<line x1="${cx}" y1="${cy}" x2="${n.nx.toFixed(1)}" y2="${n.ny.toFixed(1)}" stroke="${GRAY[200]}" stroke-width="2" />`)
+    .join("");
+  const nodeCircles = items
+    .map(
+      (n) => `
+    <circle cx="${n.nx.toFixed(1)}" cy="${n.ny.toFixed(1)}" r="${n.nodeR.toFixed(1)}" fill="${color}" fill-opacity="0.85" />
+    <text x="${n.nx.toFixed(1)}" y="${(n.ny + n.nodeR + 16).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="${GRAY[700]}">${esc(n.label)}</text>
+  `
+    )
+    .join("");
+
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+    ${lines}
+    <circle cx="${cx}" cy="${cy}" r="30" fill="${color}" />
+    <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="white">${esc(center.slice(0, 6))}</text>
+    ${nodeCircles}
+  </svg>`;
+}
+
+/** 커버 페이지용: 실제 top keyword 데이터 기반 "키워드 성좌" 그래픽. 순수 장식이 아니라 데이터 파생 그래픽. */
+export function keywordConstellation(
+  keywords: { keyword: string; count: number }[],
+  opts: { width: number; height: number; accent: string }
+): string {
+  const { width, height, accent } = opts;
+  if (keywords.length === 0) {
+    return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${width / 2}" cy="${height / 2}" r="${Math.min(width, height) / 3}" fill="${accent}14" />
+    </svg>`;
+  }
+  const top = keywords.slice(0, 7);
+  const max = Math.max(...top.map((k) => k.count), 1);
+  const cx = width / 2;
+  const cy = height / 2;
+  const rBase = Math.min(width, height) / 2 - 40;
+
+  const nodes = top.map((k, i) => {
+    const angle = (i / top.length) * 2 * Math.PI - Math.PI / 2;
+    const orbit = rBase * (0.45 + 0.55 * (1 - k.count / max === 0 ? 0.1 : (i % 3) * 0.18));
+    const nx = cx + orbit * Math.cos(angle);
+    const ny = cy + orbit * Math.sin(angle);
+    const nodeR = 6 + (k.count / max) * 22;
+    return { nx, ny, nodeR, label: k.keyword };
+  });
+
+  const lines = nodes
+    .map((n, i) => {
+      const next = nodes[(i + 1) % nodes.length];
+      return `<line x1="${n.nx.toFixed(1)}" y1="${n.ny.toFixed(1)}" x2="${next.nx.toFixed(1)}" y2="${next.ny.toFixed(1)}" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.5" />`;
+    })
+    .join("");
+  const circles = nodes
+    .map(
+      (n, i) => `
+    <circle cx="${n.nx.toFixed(1)}" cy="${n.ny.toFixed(1)}" r="${n.nodeR.toFixed(1)}" fill="${accent}" fill-opacity="${0.5 + (i === 0 ? 0.4 : 0)}" />
+    <text x="${n.nx.toFixed(1)}" y="${(n.ny + n.nodeR + 15).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="${GRAY[600]}">${esc(n.label)}</text>
+  `
+    )
+    .join("");
+
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+    ${lines}
+    ${circles}
+  </svg>`;
+}
+
 /** 타임라인(언급량/참여량 추이). */
 export function areaTimelineChart(
   points: { date: string; mentions: number; engagement: number }[],
-  opts: { width: number; height?: number } = { width: 900 }
+  opts: { width: number; height?: number; color?: string } = { width: 900 }
 ): string {
   if (points.length === 0) return `<div class="chart-empty">표시할 데이터가 없습니다</div>`;
+  const color = opts.color ?? COLORS.primary;
   const height = opts.height ?? 220;
   const pad = 40;
   const plotW = opts.width - pad * 2;
@@ -239,8 +364,8 @@ export function areaTimelineChart(
     .join("");
 
   return `<svg width="${opts.width}" height="${height}" viewBox="0 0 ${opts.width} ${height}" xmlns="http://www.w3.org/2000/svg">
-    <path d="${areaPath}" fill="${COLORS.primaryTint}" />
-    <path d="${mentionsPath}" fill="none" stroke="${COLORS.primary}" stroke-width="2.5" />
+    <path d="${areaPath}" fill="${color}1A" />
+    <path d="${mentionsPath}" fill="none" stroke="${color}" stroke-width="2.5" />
     <path d="${engagementPath}" fill="none" stroke="${GRAY[400]}" stroke-width="2" stroke-dasharray="4 3" />
     ${labels}
   </svg>`;

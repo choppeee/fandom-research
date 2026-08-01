@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { buildReportHtml, renderHtmlToPdf, type ModuleContent, type ReportData } from "@/lib/pdf/render";
+import { parseStoredModuleContent, type ExecutiveSummaryResult } from "@/lib/insight-types";
+import type { ValidatedReference } from "@/lib/reference-search";
 import type { VisualData } from "@/lib/visual-data";
 import type { Aggregates } from "@/lib/aggregate";
 
@@ -16,12 +18,18 @@ const EMPTY_VISUAL_DATA: VisualData = {
   opportunityMap: { keep: [], discover: [], create: [] },
 };
 
-function splitExecutiveSummary(content: string): { summary: string; conclusion: string } {
-  const marker = "## Final Strategic Conclusion";
-  const idx = content.indexOf(marker);
-  if (idx === -1) return { summary: content, conclusion: "" };
-  return { summary: content.slice(0, idx).trim(), conclusion: content.slice(idx).trim() };
-}
+const EMPTY_EXECUTIVE_SUMMARY: ExecutiveSummaryResult = {
+  findings: [],
+  ipAtGlance: {
+    currentPosition: "",
+    coreAppeal: "",
+    hiddenValue: "",
+    topOpportunity: "",
+    topRisk: "",
+    recommendedDirection: "",
+  },
+  finalSentence: "",
+};
 
 export async function GET(
   _request: NextRequest,
@@ -80,7 +88,9 @@ export async function GET(
     .map((m) => ({ moduleKey: m.module_key, title: m.title ?? m.module_key, content: m.content_md ?? "" }));
 
   const execModule = (modulesData ?? []).find((m) => m.module_key === "executive_summary");
-  const { summary, conclusion } = execModule ? splitExecutiveSummary(execModule.content_md ?? "") : { summary: "", conclusion: "" };
+  const execParsed = execModule ? parseStoredModuleContent(execModule.content_md ?? "") : null;
+  const executiveSummary =
+    execParsed && execParsed.kind === "executive_summary" ? execParsed.data : EMPTY_EXECUTIVE_SUMMARY;
 
   const stats: Aggregates = {
     topKeywords: insight?.top_keywords ?? [],
@@ -111,9 +121,8 @@ export async function GET(
     stats,
     modules,
     visualData: (insight?.visual_data as VisualData) ?? EMPTY_VISUAL_DATA,
-    researchReferences: insight?.research_references ?? [],
-    executiveSummaryMd: summary,
-    finalConclusionMd: conclusion,
+    researchReferences: (insight?.research_references as ValidatedReference[] | null) ?? [],
+    executiveSummary,
   };
 
   let pdfBuffer: Buffer;

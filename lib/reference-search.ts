@@ -10,12 +10,41 @@ function anthropic() {
   return client;
 }
 
+export type ReferenceCategory = "academic" | "context";
+
 export type ValidatedReference = {
   title: string;
   url: string;
   snippet: string;
   connectionNote: string;
+  category: ReferenceCategory;
 };
+
+const ACADEMIC_DOMAIN_PATTERNS = [
+  /\.ac\.kr/i,
+  /kci\.go\.kr/i,
+  /riss\.kr/i,
+  /dbpia\.co\.kr/i,
+  /kiss\.kstudy\.com/i,
+  /earticle\.net/i,
+  /koreascience\.kr/i,
+  /scholar\.google/i,
+  /jstor\.org/i,
+  /sciencedirect\.com/i,
+  /springer\.com/i,
+  /tandfonline\.com/i,
+  /sagepub\.com/i,
+  /researchgate\.net/i,
+  /ncbi\.nlm\.nih\.gov/i,
+  /\.edu\b/i,
+  /dcollection\./i,
+];
+
+/** 학술/연구기관 도메인 패턴이면 academic, 그 외(공식 프로필/기사/위키 등)는 context로 분류.
+ * 별도 LLM 호출 없이 URL 패턴으로만 판별해 나무위키 등 일반 자료가 학술 근거처럼 보이지 않게 한다. */
+function classifyCategory(url: string): ReferenceCategory {
+  return ACADEMIC_DOMAIN_PATTERNS.some((re) => re.test(url)) ? "academic" : "context";
+}
 
 /**
  * 실제 웹 검색(Claude의 서버사이드 web_search 도구)으로 찾은 자료만 레퍼런스로 채택한다.
@@ -73,6 +102,7 @@ ${params.focusAreas.map((f, i) => `${i + 1}. ${f}`).join("\n")}
           url,
           snippet: String(citation.cited_text ?? "").slice(0, 300),
           connectionNote: String(block.text ?? "").slice(0, 300),
+          category: classifyCategory(url),
         });
       }
     }

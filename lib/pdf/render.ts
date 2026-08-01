@@ -4,23 +4,27 @@ import { COLORS, accentForKeyword } from "./tokens";
 import {
   baseStyles,
   coverPage,
-  sectionDividerPage,
   kpiDashboardPage,
   execSummaryCardsPage,
-  execStrategyDiagramPage,
-  textPage,
+  ipAtGlancePage,
+  insightModulePage,
+  legacyTextPage,
   diagnosticDashboardPage,
   audienceFunnelPage,
   characterArchitecturePage,
   opportunityMatrixPage,
   perceptionMapPage,
   opportunityMapPage,
+  positioningPage,
+  strategyPage,
   referencePage,
   backCoverPage,
 } from "./pages";
 import { barChartHorizontal, donutChart, areaTimelineChart, funnelChart, matrix2x2, bipolarAxisChart } from "./charts";
 import { markdownToBlocks, paginateBlocks, stripLeadingHeading } from "./markdown";
-import { parseTop5Insights, parseFinalConclusion } from "./parse-summary";
+import { parseStoredModuleContent } from "../insight-types";
+import type { ExecutiveSummaryResult } from "../insight-types";
+import type { ValidatedReference } from "../reference-search";
 import type { VisualData } from "../visual-data";
 import type { Aggregates } from "../aggregate";
 
@@ -37,9 +41,8 @@ export type ReportData = {
   stats: Aggregates;
   modules: ModuleContent[];
   visualData: VisualData;
-  researchReferences: { title: string; url: string; snippet: string; connectionNote: string }[];
-  executiveSummaryMd: string;
-  finalConclusionMd: string;
+  researchReferences: ValidatedReference[];
+  executiveSummary: ExecutiveSummaryResult;
 };
 
 const FONT_REGULAR = path.join(process.cwd(), "assets/fonts/NanumGothic-Regular.ttf");
@@ -54,17 +57,47 @@ function fontFaceCss(): string {
   `;
 }
 
-function moduleTextPages(
-  mod: ModuleContent,
+type ChapterIntro = { num: string; title: string; keyQuestion: string };
+
+/** 신규 구조화 모듈(insights)이면 Insight Page 1장, 구버전 자유 마크다운이면 레거시 페이지(여러 장 가능)로 렌더링. */
+function renderModulePages(
+  mod: ModuleContent | undefined,
   breadcrumb: string,
   reportTitle: string,
   accent: string,
-  pageNumRef: { n: number }
+  pageNumRef: { n: number },
+  chapterIntro?: ChapterIntro
 ): string[] {
+  if (!mod || !mod.content.trim()) return [];
+  const parsed = parseStoredModuleContent(mod.content);
+
+  if (parsed && parsed.kind === "insights") {
+    const r = parsed.data;
+    if (!r.applicable && r.insights.length === 0) {
+      // 적용 어려움 - 데이터 없는 페이지를 억지로 넣지 않고 건너뛴다.
+      return [];
+    }
+    return [
+      insightModulePage({
+        breadcrumb,
+        reportTitle,
+        pageNum: pageNumRef.n++,
+        chapterIntro,
+        moduleTitle: mod.title,
+        applicable: r.applicable,
+        notApplicableReason: r.notApplicableReason,
+        primary: r.insights[0],
+        secondary: r.insights.slice(1),
+        accent,
+      }),
+    ];
+  }
+
+  // 레거시 자유 마크다운 폴백 (구버전 job과의 하위호환)
   const blocks = markdownToBlocks(stripLeadingHeading(mod.content));
-  const pageGroups = paginateBlocks(blocks, 150);
+  const pageGroups = paginateBlocks(blocks, 200);
   return pageGroups.map((group, i) =>
-    textPage({
+    legacyTextPage({
       breadcrumb,
       headline: i === 0 ? mod.title : `${mod.title} (계속)`,
       bodyHtml: group.join(""),
@@ -81,6 +114,10 @@ export function buildReportHtml(data: ReportData): string {
   const pageNum = { n: 1 };
   const pages: string[] = [];
 
+  const byKey = new Map(data.modules.map((m) => [m.moduleKey, m]));
+  const modPages = (key: string, breadcrumb: string, chapterIntro?: ChapterIntro) =>
+    renderModulePages(byKey.get(key), breadcrumb, reportTitle, accent, pageNum, chapterIntro);
+
   // --- Cover ---
   pages.push(
     coverPage({
@@ -91,25 +128,16 @@ export function buildReportHtml(data: ReportData): string {
       commentCount: data.commentCount,
       postCount: data.postCount,
       generatedAt: data.generatedAt,
+      topKeywords: data.stats.topKeywords,
       accent,
     })
   );
   pageNum.n++;
 
-  const byKey = new Map(data.modules.map((m) => [m.moduleKey, m]));
-  const modPages = (key: string, breadcrumb: string) => {
-    const m = byKey.get(key);
-    if (!m || !m.content.trim()) return [] as string[];
-    return moduleTextPages(m, breadcrumb, reportTitle, accent, pageNum);
-  };
-
-  // --- Section 01: OVERVIEW ---
-  pages.push(sectionDividerPage({ num: "01", title: "OVERVIEW", subtitle: "핵심 지표와 전략 결론 요약", accent }));
-  pageNum.n++;
-
+  // --- 01 EXECUTIVE ---
   pages.push(
     kpiDashboardPage({
-      breadcrumb: "01 Overview",
+      breadcrumb: "01 Executive",
       reportTitle,
       pageNum: pageNum.n++,
       accent,
@@ -129,135 +157,130 @@ export function buildReportHtml(data: ReportData): string {
     })
   );
 
-  const top5 = parseTop5Insights(data.executiveSummaryMd);
-  if (top5.length > 0) {
-    const firstChunk = top5.slice(0, 3);
-    const restChunk = top5.slice(3);
+  if (data.executiveSummary.findings.length > 0) {
     pages.push(
       execSummaryCardsPage({
-        breadcrumb: "01 Overview",
+        breadcrumb: "01 Executive",
         reportTitle,
         pageNum: pageNum.n++,
-        insights: firstChunk,
-        startIndex: 0,
-        title: "TOP 5 INSIGHTS",
+        findings: data.executiveSummary.findings,
         accent,
       })
     );
-    if (restChunk.length > 0) {
-      pages.push(
-        execSummaryCardsPage({
-          breadcrumb: "01 Overview",
-          reportTitle,
-          pageNum: pageNum.n++,
-          insights: restChunk,
-          startIndex: 3,
-          title: "TOP 5 INSIGHTS (계속)",
-          accent,
-        })
-      );
-    }
   }
 
-  const conclusionSteps = parseFinalConclusion(data.finalConclusionMd);
-  if (conclusionSteps.length > 0) {
+  const glance = data.executiveSummary.ipAtGlance;
+  const glanceSteps = [
+    { label: "CURRENT POSITION", value: glance.currentPosition },
+    { label: "CORE APPEAL", value: glance.coreAppeal },
+    { label: "HIDDEN VALUE", value: glance.hiddenValue },
+    { label: "TOP OPPORTUNITY", value: glance.topOpportunity },
+    { label: "TOP RISK", value: glance.topRisk },
+    { label: "RECOMMENDED DIRECTION", value: glance.recommendedDirection },
+  ].filter((s) => s.value.trim());
+  if (glanceSteps.length > 0) {
     pages.push(
-      execStrategyDiagramPage({
-        breadcrumb: "01 Overview",
+      ipAtGlancePage({
+        breadcrumb: "01 Executive",
         reportTitle,
         pageNum: pageNum.n++,
-        steps: conclusionSteps,
+        steps: glanceSteps,
+        finalSentence: data.executiveSummary.finalSentence,
         accent,
       })
     );
   }
 
-  // Data viz: sentiment donut + top keywords + timeline
+  // --- 02 AUDIENCE ---
+  // 데이터 시각화 페이지는 통계에서 직접 계산되어 항상 렌더링되므로, 챕터 배너를 여기 고정 부착한다
+  // (LLM 모듈은 이번 데이터/IP에 적용 불가능할 경우 페이지 자체가 생략될 수 있어 배너 앵커로 쓰지 않는다).
+  const chapter02: ChapterIntro = { num: "02", title: "AUDIENCE", keyQuestion: "누가, 왜 반응하는가?" };
+
   const donutSvg = donutChart(
     [
       { label: "긍정", value: data.stats.sentimentRatio.positive, color: COLORS.positive },
       { label: "부정", value: data.stats.sentimentRatio.negative, color: COLORS.risk },
-      { label: "중립", value: data.stats.sentimentRatio.neutral, color: "#B8B0D0" },
+      { label: "중립", value: data.stats.sentimentRatio.neutral, color: COLORS.neutralChart },
     ],
-    { size: 180 }
+    { size: 170 }
   );
   const keywordSvg = barChartHorizontal(
     data.stats.topKeywords.slice(0, 8).map((k) => ({ label: k.keyword, value: k.count })),
-    { width: 460 }
+    { width: 440, color: accent }
   );
-  const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: 1080, height: 200 });
-
+  const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: 1080, height: 190, color: accent });
   pages.push(`<section class="page" style="padding:56px;">
-    <div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:#6B6478;">01 Overview</span></div><span class="brand">FANDOM RESEARCH</span></div>
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:24px;">SENTIMENT &amp; TOPIC DISTRIBUTION</h2>
-    <div style="display:flex;gap:40px;align-items:flex-start;">
+    <div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:#686371;">02 Audience</span></div><span class="brand">FANDOM RESEARCH</span></div>
+    <div style="margin-top:58px;margin-bottom:6px;display:flex;align-items:baseline;gap:14px;"><span style="font-size:13px;font-weight:700;color:${accent};letter-spacing:0.5px;">${chapter02.num} ${chapter02.title}</span><span style="font-size:11px;color:#8A8594;">${chapter02.keyQuestion}</span></div>
+    <h2 style="font-size:22px;margin-top:10px;margin-bottom:20px;">SENTIMENT &amp; TOPIC DISTRIBUTION</h2>
+    <div style="display:flex;gap:36px;align-items:flex-start;">
       <div>${donutSvg}</div>
       <div>${keywordSvg}</div>
     </div>
-    <div style="margin-top:20px;">
-      <div style="font-size:10.5px;color:#6B6478;margin-bottom:8px;">언급량 · 참여량 추이</div>
+    <div style="margin-top:18px;">
+      <div style="font-size:10.5px;color:#686371;margin-bottom:8px;">언급량 · 참여량 추이</div>
       ${timelineSvg}
     </div>
     <div class="footer"><span>${reportTitle}</span><span>${pageNum.n++}</span></div>
   </section>`);
 
-  // --- Section 02: AUDIENCE ---
-  pages.push(sectionDividerPage({ num: "02", title: "AUDIENCE", subtitle: "누가, 왜 반응하는가", accent }));
-  pageNum.n++;
-  pages.push(...modPages("audience_perception", "02 Audience"));
   pages.push(...modPages("audience_segments", "02 Audience"));
   pages.push(...modPages("conversion_signals", "02 Audience"));
-  pages.push(...modPages("appeal_drivers", "02 Audience"));
 
-  // --- Section 03: PERCEPTION & PSYCHOLOGY ---
-  pages.push(
-    sectionDividerPage({ num: "03", title: "PERCEPTION & PSYCHOLOGY", subtitle: "대중 인식의 구조와 심리적 동인", accent })
-  );
-  pageNum.n++;
+  // --- 03 IP PERCEPTION ---
+  let chapter03: ChapterIntro | undefined = { num: "03", title: "IP PERCEPTION", keyQuestion: "대중 인식의 구조는 어떤가?" };
+  const consumeChapter03 = () => {
+    const c = chapter03;
+    chapter03 = undefined;
+    return c;
+  };
+  pages.push(...modPages("audience_perception", "03 Perception", consumeChapter03()));
+
   if (data.visualData.perceptionMap.axes.length > 0) {
     const axisSvg = bipolarAxisChart(
-      data.visualData.perceptionMap.axes.map((a) => ({
-        leftLabel: a.leftLabel,
-        rightLabel: a.rightLabel,
-        position: a.position,
-      })),
-      { width: 900 }
+      data.visualData.perceptionMap.axes.map((a) => ({ leftLabel: a.leftLabel, rightLabel: a.rightLabel, position: a.position })),
+      { width: 900, color: accent }
     );
-    pages.push(perceptionMapPage({ breadcrumb: "03 Perception", reportTitle, pageNum: pageNum.n++, axisSvg, accent }));
+    pages.push(
+      perceptionMapPage({
+        breadcrumb: "03 Perception",
+        reportTitle,
+        pageNum: pageNum.n++,
+        chapterIntro: consumeChapter03(),
+        axisSvg,
+        accent,
+      })
+    );
   }
-  pages.push(...modPages("psychological_drivers", "03 Perception"));
+
+  if (data.visualData.characterArchitecture.applicable && data.visualData.characterArchitecture.layers.length > 0) {
+    pages.push(
+      characterArchitecturePage({
+        breadcrumb: "03 Perception",
+        reportTitle,
+        pageNum: pageNum.n++,
+        ipLabel: data.visualData.ipLabel,
+        layers: data.visualData.characterArchitecture.layers,
+        accent,
+      })
+    );
+  }
+  pages.push(...modPages("character_traits", "03 Perception", consumeChapter03()));
+  pages.push(...modPages("appeal_drivers", "03 Perception"));
+  pages.push(...modPages("relationship_dynamics", "03 Perception"));
+  pages.push(...modPages("viral_mechanics", "03 Perception"));
   pages.push(...modPages("platform_youtube", "03 Perception"));
   pages.push(...modPages("platform_x", "03 Perception"));
   pages.push(...modPages("cross_platform", "03 Perception"));
 
-  // --- Section 04: CHARACTER ---
-  pages.push(sectionDividerPage({ num: "04", title: "CHARACTER", subtitle: "IP의 캐릭터 구조 분해", accent }));
-  pageNum.n++;
-  pages.push(
-    characterArchitecturePage({
-      breadcrumb: "04 Character",
-      reportTitle,
-      pageNum: pageNum.n++,
-      ipLabel: data.visualData.ipLabel,
-      layers: data.visualData.characterArchitecture.applicable ? data.visualData.characterArchitecture.layers : [],
-      accent,
-    })
-  );
-  pages.push(...modPages("character_traits", "04 Character"));
-  pages.push(...modPages("relationship_dynamics", "04 Character"));
-  pages.push(...modPages("viral_mechanics", "04 Character"));
-
-  // --- Section 05: OPPORTUNITY & STRATEGY ---
-  pages.push(
-    sectionDividerPage({ num: "05", title: "OPPORTUNITY & STRATEGY", subtitle: "숨은 가치에서 실행 전략까지", accent })
-  );
-  pageNum.n++;
-
+  // --- 04 DIAGNOSIS ---
+  let chapter04: ChapterIntro | undefined = { num: "04", title: "DIAGNOSIS", keyQuestion: "무엇이 강점이고 무엇이 위험인가?" };
   pages.push(
     diagnosticDashboardPage({
-      breadcrumb: "05 Opportunity",
+      breadcrumb: "04 Diagnosis",
       reportTitle,
       pageNum: pageNum.n++,
+      chapterIntro: chapter04,
       strong: data.visualData.diagnostic.strongAssets,
       hidden: data.visualData.diagnostic.hiddenAssets,
       weak: data.visualData.diagnostic.weakSignals,
@@ -265,7 +288,11 @@ export function buildReportHtml(data: ReportData): string {
       accent,
     })
   );
+  chapter04 = undefined;
+  pages.push(...modPages("hidden_value", "04 Diagnosis"));
+  pages.push(...modPages("risk_misperception", "04 Diagnosis"));
 
+  // --- 05 OPPORTUNITY ---
   if (
     data.visualData.opportunityMap.keep.length +
       data.visualData.opportunityMap.discover.length +
@@ -286,13 +313,16 @@ export function buildReportHtml(data: ReportData): string {
   }
 
   if (data.visualData.opportunityMatrix.points.length > 0) {
+    const points = data.visualData.opportunityMatrix.points;
     const matrixSvg = matrix2x2(
-      data.visualData.opportunityMatrix.points.map((p) => ({
-        label: p.label,
-        x: p.massAudienceExpansion,
-        y: p.evidenceStrength,
-      })),
-      { width: 460, height: 360, xLabel: "Mass Audience Expansion Potential", yLabel: "Evidence Strength" }
+      points.map((p) => ({ x: p.massAudienceExpansion, y: p.evidenceStrength, color: accent })),
+      {
+        width: 440,
+        height: 340,
+        xLabel: "Mass Audience Expansion Potential",
+        yLabel: "Evidence Strength",
+        quadrants: { topRight: "PRIORITIZE", topLeft: "PROTECT", bottomRight: "TEST", bottomLeft: "DEPRIORITIZE" },
+      }
     );
     pages.push(
       opportunityMatrixPage({
@@ -300,14 +330,14 @@ export function buildReportHtml(data: ReportData): string {
         reportTitle,
         pageNum: pageNum.n++,
         matrixSvg,
-        notes: data.visualData.opportunityMatrix.points.map((p) => ({ label: p.label, note: p.note })),
+        notes: points.map((p) => ({ label: p.label, note: p.note })),
         accent,
       })
     );
   }
 
   if (data.visualData.funnel.stages.length > 0) {
-    const funnelSvg = funnelChart(data.visualData.funnel.stages, { width: 1080 });
+    const funnelSvg = funnelChart(data.visualData.funnel.stages, { width: 1080, color: accent });
     pages.push(
       audienceFunnelPage({
         breadcrumb: "05 Opportunity",
@@ -320,18 +350,54 @@ export function buildReportHtml(data: ReportData): string {
     );
   }
 
-  pages.push(...modPages("hidden_value", "05 Strategy"));
-  pages.push(...modPages("risk_misperception", "05 Strategy"));
-  pages.push(...modPages("positioning_strategy", "05 Strategy"));
-  pages.push(...modPages("strategy_actions_ideas", "05 Strategy"));
+  const positioningMod = byKey.get("positioning_strategy");
+  if (positioningMod) {
+    const parsed = parseStoredModuleContent(positioningMod.content);
+    if (parsed && parsed.kind === "positioning" && parsed.data.candidates.length > 0) {
+      pages.push(
+        positioningPage({
+          breadcrumb: "05 Opportunity",
+          reportTitle,
+          pageNum: pageNum.n++,
+          candidates: parsed.data.candidates,
+          core: parsed.data.core,
+          supporting: parsed.data.supporting,
+          emerging: parsed.data.emerging,
+          accent,
+        })
+      );
+    }
+  }
 
+  // --- 06 STRATEGY ---
+  const strategyMod = byKey.get("strategy_actions_ideas");
+  if (strategyMod) {
+    const parsed = parseStoredModuleContent(strategyMod.content);
+    if (parsed && parsed.kind === "strategy" && parsed.data.recommendations.length > 0) {
+      pages.push(
+        strategyPage({
+          breadcrumb: "06 Strategy",
+          reportTitle,
+          pageNum: pageNum.n++,
+          recommendations: parsed.data.recommendations,
+          appendixIdeas: parsed.data.appendixIdeas,
+          accent,
+        })
+      );
+    }
+  }
+
+  // --- 07 REFERENCES & EVIDENCE ---
   if (data.researchReferences.length > 0) {
+    const academic = data.researchReferences.filter((r) => r.category === "academic");
+    const context = data.researchReferences.filter((r) => r.category !== "academic");
     pages.push(
       referencePage({
-        breadcrumb: "05 Strategy",
+        breadcrumb: "07 References",
         reportTitle,
         pageNum: pageNum.n++,
-        refs: data.researchReferences.map((r) => ({ title: r.title, url: r.url, note: r.connectionNote || r.snippet })),
+        academic: academic.map((r) => ({ title: r.title, url: r.url, note: r.connectionNote || r.snippet })),
+        context: context.map((r) => ({ title: r.title, url: r.url, note: r.connectionNote || r.snippet })),
         accent,
       })
     );
