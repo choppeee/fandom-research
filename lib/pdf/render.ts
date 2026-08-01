@@ -418,6 +418,12 @@ export function buildReportHtml(data: ReportData): string {
   </head><body>${pages.join("\n")}</body></html>`;
 }
 
+// @sparticuz/chromium은 최초 호출 시 압축된 바이너리를 /tmp에 풀어서 캐시한다. 같은(웜) 서버리스
+// 컨테이너에서 두 요청이 동시에 들어오면 executablePath()를 둘 다 새로 호출해 같은 파일에 동시에
+// 쓰려다 "spawn ETXTBSY"(파일이 아직 쓰는 중이라 실행 불가)로 실패하는 경우가 실측 확인됐다.
+// 컨테이너당 한 번만 추출하고 이후 호출은 같은 Promise를 공유해 경합을 없앤다.
+let chromiumExecutablePathPromise: Promise<string> | null = null;
+
 export async function renderHtmlToPdf(html: string): Promise<Buffer> {
   const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
@@ -426,9 +432,12 @@ export async function renderHtmlToPdf(html: string): Promise<Buffer> {
   if (isServerless) {
     const chromium = (await import("@sparticuz/chromium")).default;
     const puppeteer = await import("puppeteer-core");
+    if (!chromiumExecutablePathPromise) {
+      chromiumExecutablePathPromise = chromium.executablePath();
+    }
     browser = await puppeteer.launch({
       args: chromium.args,
-      executablePath: await chromium.executablePath(),
+      executablePath: await chromiumExecutablePathPromise,
       headless: true,
     });
   } else {
