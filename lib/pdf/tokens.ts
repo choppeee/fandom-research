@@ -58,10 +58,10 @@ export const PAGE = {
 } as const;
 
 export const EVIDENCE_LABEL: Record<string, string> = {
-  high: "HIGH",
-  medium: "MEDIUM",
-  low: "LOW",
-  unknown: "UNKNOWN",
+  high: "확신 높음",
+  medium: "확신 보통",
+  low: "확신 낮음",
+  unknown: "확인 중",
 };
 
 export function evidenceDots(level: string): string {

@@ -30,6 +30,7 @@ import type { ValidatedReference } from "../reference-search";
 import type { VisualData } from "../visual-data";
 import type { Aggregates } from "../aggregate";
 import type { ReportMode } from "../report-mode";
+import type { MetricItem } from "../report/reportSchema";
 
 export type ModuleContent = { moduleKey: string; title: string; content: string };
 
@@ -47,6 +48,9 @@ export type ReportData = {
   visualData: VisualData;
   researchReferences: ValidatedReference[];
   executiveSummary: ExecutiveSummaryResult;
+  // 웹과 동일한 lib/report/ipMetricSelectors.ts의 selectMetrics() 결과. IP 유형에 안 맞거나
+  // 실제 계산 근거가 없는 지표(예: 인물 IP의 구매의향)는 여기 애초에 들어있지 않다.
+  metrics: MetricItem[];
   // moduleKey별 primary insight(insights[0])의 Evidence Package. 키 형식: `${moduleKey}-0`.
   // PDF export 라우트가 렌더 전에 썸네일/QR까지 다 fetch해서 채워 넣는다(pages.ts는 항상 동기).
   evidenceByInsightId?: Record<string, PdfEvidencePackage>;
@@ -171,19 +175,7 @@ export function buildReportHtml(data: ReportData): string {
         data.reportMode === "exploratory"
           ? `표본이 ${data.videoCount + data.postCount}건의 콘텐츠, ${data.commentCount + data.postCount}건의 반응으로 작습니다. 이 리포트는 전체 ${data.keyword}에 대한 확정적 진단이 아니라, 현재 표본에서 발견된 반응 후보를 다룹니다.`
           : undefined,
-      kpis: [
-        { label: "TOTAL DATA", value: String(data.videoCount + data.commentCount + data.postCount) },
-        { label: "VIDEOS", value: String(data.videoCount) },
-        { label: "COMMENTS / POSTS", value: String(data.commentCount + data.postCount) },
-        { label: "POSITIVE", value: `${data.stats.sentimentRatio.positive}%` },
-        { label: "NEGATIVE", value: `${data.stats.sentimentRatio.negative}%` },
-        { label: "PURCHASE INTENT", value: `${data.stats.purchaseIntentSummary.positiveRatio}%` },
-        {
-          label: "TOP CHARACTER TRAIT",
-          value: data.visualData.characterArchitecture.layers.find((l) => l.layer === "CORE")?.label ?? "-",
-        },
-        { label: "RISK ALERTS", value: String(data.stats.riskGroups.reduce((s, g) => s + g.count, 0)) },
-      ],
+      kpis: data.metrics.map((m) => ({ label: m.label, value: m.value })),
     })
   );
 
@@ -241,7 +233,7 @@ export function buildReportHtml(data: ReportData): string {
   );
   const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: 1080, height: 190, color: accent });
   pages.push(`<section class="page" style="padding:56px;">
-    <div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:#686371;">02 Audience</span></div><span class="brand">FANDOM RESEARCH</span></div>
+    <div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:#686371;">02 Audience</span></div><span class="brand">AUDIENCE &amp; IP INTELLIGENCE</span></div>
     <div style="margin-top:58px;margin-bottom:6px;display:flex;align-items:baseline;gap:14px;"><span style="font-size:13px;font-weight:700;color:${accent};letter-spacing:0.5px;">${chapter02.num} ${chapter02.title}</span><span style="font-size:11px;color:#8A8594;">${chapter02.keyQuestion}</span></div>
     <h2 style="font-size:22px;margin-top:10px;margin-bottom:20px;">SENTIMENT &amp; TOPIC DISTRIBUTION</h2>
     <div style="display:flex;gap:36px;align-items:flex-start;">
@@ -306,20 +298,24 @@ export function buildReportHtml(data: ReportData): string {
 
   // --- 04 DIAGNOSIS ---
   let chapter04: ChapterIntro | undefined = { num: "04", title: "DIAGNOSIS", keyQuestion: "무엇이 강점이고 무엇이 위험인가?" };
-  pages.push(
-    diagnosticDashboardPage({
-      breadcrumb: "04 Diagnosis",
-      reportTitle,
-      pageNum: pageNum.n++,
-      chapterIntro: chapter04,
-      strong: data.visualData.diagnostic.strongAssets,
-      hidden: data.visualData.diagnostic.hiddenAssets,
-      weak: data.visualData.diagnostic.weakSignals,
-      risks: data.visualData.diagnostic.risks,
-      accent,
-    })
-  );
-  chapter04 = undefined;
+  const { strongAssets, hiddenAssets, weakSignals, risks } = data.visualData.diagnostic;
+  // 유효 항목이 하나도 없으면 4칸 전부 "데이터 부족"인 빈 대시보드 페이지를 만들지 않는다.
+  if (strongAssets.length + hiddenAssets.length + weakSignals.length + risks.length > 0) {
+    pages.push(
+      diagnosticDashboardPage({
+        breadcrumb: "04 Diagnosis",
+        reportTitle,
+        pageNum: pageNum.n++,
+        chapterIntro: chapter04,
+        strong: strongAssets,
+        hidden: hiddenAssets,
+        weak: weakSignals,
+        risks: risks,
+        accent,
+      })
+    );
+    chapter04 = undefined;
+  }
   pages.push(...modPages("hidden_value", "04 Diagnosis"));
   pages.push(...modPages("risk_misperception", "04 Diagnosis"));
 

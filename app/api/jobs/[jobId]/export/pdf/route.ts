@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { buildReportHtml, renderHtmlToPdf, type ModuleContent, type ReportData } from "@/lib/pdf/render";
-import { parseStoredModuleContent, type ExecutiveSummaryResult } from "@/lib/insight-types";
+import { parseStoredModuleContent, wrapStoredContent, type ExecutiveSummaryResult, type StructuredInsight } from "@/lib/insight-types";
+import { MODULE_SECTION_MAP } from "@/lib/report/selectSections";
+import type { CanonicalInsight } from "@/lib/report/reportSchema";
 import type { ValidatedReference } from "@/lib/reference-search";
 import type { VisualData } from "@/lib/visual-data";
 import type { Aggregates } from "@/lib/aggregate";
@@ -89,15 +91,56 @@ export async function GET(
     .select("id", { count: "exact", head: true })
     .eq("job_id", jobId);
 
+  // 웹과 PDF가 같은 판단/같은 중복 제거 결과를 보여주도록, 여기서 ReportModel을 먼저 만들고
+  // PDF 전용 모듈 콘텐츠도 이 결과로부터 재구성한다(§ "웹에서는 있는데 PDF에서는 다른" 문제 방지).
+  const reportModel = await loadReportModel(admin, jobId, {
+    keyword: job.keyword,
+    period_start: job.period_start,
+    period_end: job.period_end,
+  });
+
+  // dedupeByDominantEvidence가 같은 영상을 핵심 근거로 삼는 여러 모듈의 insight를 하나로
+  // 합쳤으므로, PDF도 원래 모듈별 raw content_md 대신 이 결과로 재구성한 콘텐츠를 쓴다.
+  // 그래야 같은 발견(예: 침착맨 콜라보 캐릭터 반응)이 여러 페이지에서 반복되지 않는다.
+  const survivingByModule = new Map<string, CanonicalInsight[]>();
+  for (const section of reportModel.sections) {
+    for (const ins of section.insights) {
+      const list = survivingByModule.get(ins.moduleKey) ?? [];
+      list.push(ins);
+      survivingByModule.set(ins.moduleKey, list);
+    }
+  }
+  const stripCanonicalFields = (ins: CanonicalInsight): StructuredInsight => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id: _id, moduleKey: _mk, moduleTitle: _mt, evidencePackage: _ep, ...rest } = ins;
+    return rest;
+  };
+
   const modules: ModuleContent[] = (modulesData ?? [])
     .filter((m) => m.module_key !== "executive_summary")
-    .map((m) => ({ moduleKey: m.module_key, title: m.title ?? m.module_key, content: m.content_md ?? "" }));
+    .map((m) => {
+      if (!(m.module_key in MODULE_SECTION_MAP)) {
+        // insights 종류가 아닌 모듈(positioning/strategy 등)은 원본 그대로 사용
+        return { moduleKey: m.module_key, title: m.title ?? m.module_key, content: m.content_md ?? "" };
+      }
+      const surviving = survivingByModule.get(m.module_key) ?? [];
+      const content = wrapStoredContent({
+        kind: "insights",
+        data: {
+          applicable: surviving.length > 0,
+          notApplicableReason: surviving.length > 0 ? "" : "다른 모듈과 같은 근거를 다뤄 통합됨",
+          insights: surviving.map(stripCanonicalFields),
+        },
+      });
+      return { moduleKey: m.module_key, title: m.title ?? m.module_key, content };
+    });
 
   // Evidence Visualization: 원본 영상/댓글 근거를 fetch해서 PDF용 카드 데이터로 미리 만들어둔다.
-  // 실패해도(썸네일 fetch 실패 등) PDF 생성 자체는 막지 않는다.
+  // 실패해도(썸네일 fetch 실패 등) PDF 생성 자체는 막지 않는다. 위에서 중복 제거된 modules를
+  // 그대로 넘겨, Evidence 페이지도 같은 영상을 중복으로 만들지 않는다.
   const evidenceSource = await loadEvidenceSource(admin, jobId);
   const evidenceByInsightId = await buildPdfEvidenceMap(
-    (modulesData ?? []).filter((m) => m.module_key !== "executive_summary"),
+    modules.map((m) => ({ module_key: m.moduleKey, content_md: m.content })),
     evidenceSource
   );
 
@@ -110,11 +153,6 @@ export async function GET(
   // 웹과 동일한 buildReportModel()의 executiveDecision에서 가져온다(예: finalSentence가
   // "이 IP는 ______로 포지셔닝해야 한다."처럼 빈칸으로 남았을 때 웹은 자동으로 대체 문장을
   // 쓰는데 PDF만 빈칸 그대로 노출되는 불일치를 막는다).
-  const reportModel = await loadReportModel(admin, jobId, {
-    keyword: job.keyword,
-    period_start: job.period_start,
-    period_end: job.period_end,
-  });
   if (reportModel.executiveDecision) {
     executiveSummary.finalSentence = reportModel.executiveDecision.headline;
     if (!executiveSummary.currentSituation && reportModel.executiveDecision.kind === "decision") {
@@ -159,6 +197,7 @@ export async function GET(
     reportMode,
     stats,
     modules,
+    metrics: reportModel.metrics,
     visualData: (insight?.visual_data as VisualData) ?? EMPTY_VISUAL_DATA,
     researchReferences: (insight?.research_references as ValidatedReference[] | null) ?? [],
     executiveSummary,

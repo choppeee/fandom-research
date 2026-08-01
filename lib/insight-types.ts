@@ -62,6 +62,9 @@ export type StructuredInsight = {
   alternativeInterpretation?: string; // 검토했던 다른 해석 후보 (있을 때만)
   interpretationReason?: string; // 왜 채택한 해석이 더 설득력 있는지 (다른 해석을 검토했을 때만)
   theory?: string;
+  // LLM이 채우는 필드가 아니라, 같은 핵심 근거(영상)를 공유하는 다른 모듈의 발견을 코드에서
+  // 병합했을 때만 채워지는 헤드라인 목록 (lib/report/selectSections.ts의 dedupeByDominantEvidence).
+  relatedFindings?: string[];
 };
 
 export type ModuleResult = {
@@ -265,6 +268,7 @@ function parseInsight(i: any): StructuredInsight {
     alternativeInterpretation: i.alternative_interpretation || undefined,
     interpretationReason: i.interpretation_reason || undefined,
     theory: i.theory || undefined,
+    relatedFindings: Array.isArray(i.related_findings) ? i.related_findings : undefined,
   };
 }
 

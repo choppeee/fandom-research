@@ -12,7 +12,7 @@ import type { ValidatedReference } from "../reference-search";
 import type { Aggregates } from "../aggregate";
 import { loadEvidenceSource, buildEvidencePackage, type EvidenceSource } from "../evidence-resolve";
 import { adaptLegacyModules } from "./legacyReportAdapter";
-import { buildSections, buildEvidenceSection, MODULE_SECTION_MAP } from "./selectSections";
+import { buildSections, buildEvidenceSection, dedupeByDominantEvidence, MODULE_SECTION_MAP } from "./selectSections";
 import { selectMetrics } from "./ipMetricSelectors";
 import type { ReportModel, CanonicalInsight, ExecutiveDecision, ChartSpec } from "./reportSchema";
 
@@ -152,7 +152,8 @@ export function buildReportModel(input: ReportModelInput): ReportModel {
   );
   const isLegacy = input.moduleRows.length > 0 && !anyStructuredInsightModule;
 
-  const allInsights = buildCanonicalInsights(input.moduleRows, input.evidenceSource);
+  const rawInsights = buildCanonicalInsights(input.moduleRows, input.evidenceSource);
+  const allInsights = dedupeByDominantEvidence(rawInsights);
   const sections = buildSections(allInsights);
   const evidenceSection = buildEvidenceSection(allInsights);
   if (evidenceSection) sections.push(evidenceSection);

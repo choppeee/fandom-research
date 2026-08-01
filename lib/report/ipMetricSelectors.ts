@@ -15,10 +15,11 @@ function evidenceStrengthSummary(packages: EvidencePackage[]): MetricItem | null
   for (const p of withEvidence) counts[p.evidenceStrength] += 1;
   const order: ("HIGH" | "MEDIUM" | "LOW")[] = ["HIGH", "MEDIUM", "LOW"];
   const dominant = [...order].sort((a, b) => counts[b] - counts[a])[0];
+  const dominantLabel: Record<"HIGH" | "MEDIUM" | "LOW", string> = { HIGH: "높음", MEDIUM: "보통", LOW: "낮음" };
   return {
     key: "evidence_strength",
     label: "근거 강도",
-    value: dominant,
+    value: dominantLabel[dominant],
     caption: `원본 확인된 발견 ${withEvidence.length}건 중 다수`,
     tone: dominant === "HIGH" ? "positive" : dominant === "LOW" ? "warning" : "neutral",
   };

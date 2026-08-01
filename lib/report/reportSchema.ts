@@ -61,6 +61,9 @@ export type CanonicalInsight = StructuredInsight & {
   moduleKey: string;
   moduleTitle: string;
   evidencePackage: EvidencePackage;
+  // 같은 핵심 근거(영상)를 공유하는 다른 모듈의 발견을 병합했을 때, 병합된 발견의 헤드라인만
+  // 짧게 남긴다 - 같은 Evidence를 여러 페이지에 반복해서 보여주지 않기 위함.
+  relatedFindings?: string[];
 };
 
 export type ReportSection = {

@@ -18,6 +18,48 @@ export const MODULE_SECTION_MAP: Record<string, ReportSectionKey> = {
   risk_misperception: "diagnosis",
 };
 
+const STRENGTH_SCORE: Record<"HIGH" | "MEDIUM" | "LOW", number> = { HIGH: 2, MEDIUM: 1, LOW: 0 };
+
+function dominantVideoId(insight: CanonicalInsight): string | null {
+  return insight.evidencePackage.supportingVideos[0]?.videoId ?? null;
+}
+
+/** 서로 다른 분석 모듈(청중반응/매력요인/바이럴/숨은가치 등)이 같은 영상을 핵심 근거로
+ * 삼으면, 텍스트 유사도로는 다 걸러지지 않는 "같은 사건에 대한 여러 번의 설명"이 생긴다.
+ * Editorial Pass(LLM)의 판단만으로는 부족해서, 같은 dominant video를 공유하는 insight를
+ * 코드에서 강제로 하나로 묶는다 - 가장 근거가 강한 것만 본문에 남기고 나머지는
+ * relatedFindings(짧은 헤드라인만)로 접는다. */
+export function dedupeByDominantEvidence(insights: CanonicalInsight[]): CanonicalInsight[] {
+  const groups = new Map<string, CanonicalInsight[]>();
+  const noVideo: CanonicalInsight[] = [];
+  for (const ins of insights) {
+    const vid = dominantVideoId(ins);
+    if (!vid) {
+      noVideo.push(ins);
+      continue;
+    }
+    const list = groups.get(vid) ?? [];
+    list.push(ins);
+    groups.set(vid, list);
+  }
+
+  const kept: CanonicalInsight[] = [...noVideo];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      kept.push(group[0]);
+      continue;
+    }
+    const sorted = [...group].sort((a, b) => {
+      const s = STRENGTH_SCORE[b.evidencePackage.evidenceStrength] - STRENGTH_SCORE[a.evidencePackage.evidenceStrength];
+      if (s !== 0) return s;
+      return b.evidencePackage.sourceDiversity.commentCount - a.evidencePackage.sourceDiversity.commentCount;
+    });
+    const [primary, ...rest] = sorted;
+    kept.push({ ...primary, relatedFindings: rest.map((r) => r.headline) });
+  }
+  return kept;
+}
+
 /** "DB에 있는가"가 아니라 "판단에 필요한가" 기준의 필터. 빈 섹션은 만들지 않고,
  * 같은 헤드라인이 여러 모듈에서 겹치면(에디토리얼 패스가 놓친 잔여 중복) 하나만 남긴다. */
 export function buildSections(insights: CanonicalInsight[]): ReportSection[] {

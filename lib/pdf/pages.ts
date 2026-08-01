@@ -41,7 +41,7 @@ export function baseStyles(accent: string): string {
 }
 
 export function header(breadcrumb: string): string {
-  return `<div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:${GRAY[500]};">${esc(breadcrumb)}</span></div><span class="brand">FANDOM RESEARCH</span></div>`;
+  return `<div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:${GRAY[500]};">${esc(breadcrumb)}</span></div><span class="brand">AUDIENCE &amp; IP INTELLIGENCE</span></div>`;
 }
 
 export function footer(reportTitle: string, pageNum: number): string {
@@ -70,13 +70,13 @@ const DECISION_LABEL_KO: Record<string, string> = {
   REPEAT: "반복",
   AMPLIFY: "확대",
   CLARIFY: "명확화",
-  TEST: "테스트",
+  TEST: "확인 필요",
   EXPAND: "확장",
   CONNECT: "연결",
   PROTECT: "보호",
   REFRAME: "재정의",
   CORRECT: "교정",
-  WATCH: "관찰",
+  WATCH: "관찰 필요",
   AVOID: "보류",
   NO_CHANGE: "현행 유지",
 };
@@ -166,7 +166,7 @@ export function kpiDashboardPage(params: {
 
   return `<section class="page" style="padding:${PAGE.margin}px;">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:24px;margin-top:70px;margin-bottom:6px;">KEY METRICS AT A GLANCE</h2>
+    <h2 style="font-size:24px;margin-top:70px;margin-bottom:6px;">핵심 지표</h2>
     <div style="font-size:12px;color:${GRAY[500]};margin-bottom:${params.disclaimer ? "16" : "32"}px;">이번 리서치에서 실제로 계산된 핵심 지표입니다.</div>
     ${
       params.disclaimer
@@ -195,8 +195,8 @@ export function execSummaryCardsPage(params: {
         <div style="font-size:19px;font-weight:700;color:${params.accent};width:32px;flex-shrink:0;">${String(i + 1).padStart(2, "0")}</div>
         <div style="flex:1;">
           <div style="font-size:13px;font-weight:700;color:${COLORS.text};margin-bottom:5px;line-height:1.4;">${esc(ins.headline)}</div>
-          <div style="font-size:10.5px;color:${GRAY[500]};margin-bottom:3px;line-height:1.4;"><strong style="color:${GRAY[600]};">Evidence</strong> ${esc(ins.evidence)}</div>
-          <div style="font-size:10.5px;color:${GRAY[600]};line-height:1.4;"><strong style="color:${GRAY[600]};">Implication</strong> ${esc(ins.implication)}</div>
+          <div style="font-size:10.5px;color:${GRAY[500]};margin-bottom:3px;line-height:1.4;"><strong style="color:${GRAY[600]};">근거</strong> ${esc(ins.evidence)}</div>
+          <div style="font-size:10.5px;color:${GRAY[600]};line-height:1.4;"><strong style="color:${GRAY[600]};">의미</strong> ${esc(ins.implication)}</div>
         </div>
       </div>
     </div>`
@@ -313,13 +313,18 @@ export function insightModulePage(params: {
         <div style="width:${params.chartHtml ? "260" : "300"}px;flex-shrink:0;">
           <div style="background:${GRAY[50]};border-radius:8px;padding:12px 16px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
-              <span style="font-size:9px;font-weight:700;color:${GRAY[500]};letter-spacing:0.4px;">EVIDENCE</span>
+              <span style="font-size:9px;font-weight:700;color:${GRAY[500]};letter-spacing:0.4px;">근거</span>
               <div style="display:flex;gap:4px;">${confidenceBadge(p.confidence, params.accent)}${decisionBadge(p.decision, params.accent)}</div>
             </div>
             ${evidenceItems}
             <div style="font-size:9px;color:${GRAY[400]};margin-top:6px;">${esc(p.evidenceScope)}</div>
             ${p.theory ? `<div style="font-size:9.5px;color:${GRAY[400]};margin-top:8px;">이론: ${esc(p.theory)}</div>` : ""}
             ${bottleneckNote(p.possibleBottleneck)}
+            ${
+              p.relatedFindings && p.relatedFindings.length > 0
+                ? `<div style="font-size:9px;color:${GRAY[500]};margin-top:8px;border-top:1px solid ${GRAY[200]};padding-top:6px;"><strong>같은 근거의 다른 발견</strong><br/>${p.relatedFindings.map((f) => esc(f)).join("<br/>")}</div>`
+                : ""
+            }
           </div>
         </div>
         ${params.chartHtml ? `<div style="flex-shrink:0;">${params.chartHtml}</div>` : ""}
@@ -327,7 +332,7 @@ export function insightModulePage(params: {
       ${secondaryHtml ? `<div style="margin-top:6px;">${secondaryHtml}</div>` : ""}
     </div>
     <div style="position:absolute;left:${PAGE.margin}px;right:${PAGE.margin}px;bottom:56px;background:${params.accent}0F;border-left:3px solid ${params.accent};border-radius:8px;padding:11px 18px;">
-      <div style="font-size:9px;font-weight:700;color:${params.accent};letter-spacing:0.4px;margin-bottom:3px;">STRATEGIC IMPLICATION</div>
+      <div style="font-size:9px;font-weight:700;color:${params.accent};letter-spacing:0.4px;margin-bottom:3px;">지금 필요한 판단</div>
       <div style="font-size:11.5px;color:${GRAY[800]};">${esc(p.whyItMatters)} ${esc(p.strategicImplication)}</div>
     </div>
     ${footer(params.reportTitle, params.pageNum)}
@@ -342,7 +347,7 @@ function pdfCommentQuote(c: CommentEvidence, tag?: string): string {
   return `<div style="background:${GRAY[50]};border-radius:8px;padding:10px 12px;">
     ${tag ? `<div style="font-size:8.5px;font-weight:700;color:${GRAY[500]};letter-spacing:0.3px;margin-bottom:4px;">${esc(tag)}</div>` : ""}
     <div style="font-size:11px;color:${GRAY[800]};line-height:1.55;">&ldquo;${esc(c.text)}&rdquo;</div>
-    <div style="font-size:9px;color:${GRAY[500]};margin-top:5px;">좋아요 ${c.likeCount.toLocaleString("ko-KR")}${c.videoTitle ? ` · ${esc(c.videoTitle)}` : ""} · Evidence ID ${esc(c.commentId)}</div>
+    <div style="font-size:9px;color:${GRAY[500]};margin-top:5px;">좋아요 ${c.likeCount.toLocaleString("ko-KR")}${c.videoTitle ? ` · ${esc(c.videoTitle)}` : ""}</div>
   </div>`;
 }
 
@@ -415,7 +420,7 @@ export function evidencePage(params: {
   return `<section class="page" style="padding:${PAGE.margin}px;">
     ${header(params.breadcrumb)}
     <div style="margin-top:40px;">
-      <div style="font-size:9px;font-weight:700;color:${accent};letter-spacing:0.5px;margin-bottom:6px;">VIDEO &amp; COMMENT EVIDENCE</div>
+      <div style="font-size:9px;font-weight:700;color:${accent};letter-spacing:0.5px;margin-bottom:6px;">영상·댓글 근거</div>
       <h3 style="font-size:16px;color:${COLORS.text};margin-bottom:20px;max-width:1000px;line-height:1.4;">${esc(params.insightHeadline)}</h3>
       ${videoCardHtml}
       ${collageHtml}
@@ -463,12 +468,12 @@ export function diagnosticDashboardPage(params: {
   return `<section class="page" style="padding:${PAGE.margin}px;">
     ${header(params.breadcrumb)}
     ${bannerHtml}
-    <h2 style="font-size:22px;margin-top:${params.chapterIntro ? 10 : 64}px;margin-bottom:20px;">IP DIAGNOSTIC DASHBOARD</h2>
+    <h2 style="font-size:22px;margin-top:${params.chapterIntro ? 10 : 64}px;margin-bottom:20px;">강점·위험 진단</h2>
     <div style="display:flex;gap:20px;">
-      ${col("STRONG ASSETS", params.strong, COLORS.positive)}
-      ${col("HIDDEN ASSETS", params.hidden, params.accent)}
-      ${col("WEAK SIGNALS", params.weak, COLORS.warning)}
-      ${col("RISKS", params.risks, COLORS.risk)}
+      ${col("확고한 강점", params.strong, COLORS.positive)}
+      ${col("숨은 자산", params.hidden, params.accent)}
+      ${col("약한 신호", params.weak, COLORS.warning)}
+      ${col("위험 요인", params.risks, COLORS.risk)}
     </div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -690,19 +695,19 @@ export function positioningPage(params: {
 // N. Strategy Page (13종 Decision을 4개 실행 티어로 묶어 배치)
 // ---------------------------------------------------------------------------
 const DECISION_LABEL: Record<string, string> = {
-  KEEP: "KEEP · 유지",
-  REPEAT: "REPEAT · 반복",
-  AMPLIFY: "AMPLIFY · 확대",
-  CLARIFY: "CLARIFY · 명확화",
-  TEST: "TEST · 테스트",
-  EXPAND: "EXPAND · 확장",
-  CONNECT: "CONNECT · 연결",
-  PROTECT: "PROTECT · 보호",
-  REFRAME: "REFRAME · 재정의",
-  CORRECT: "CORRECT · 교정",
-  WATCH: "WATCH · 관찰",
-  AVOID: "AVOID · 보류",
-  NO_CHANGE: "NO CHANGE · 현행 유지",
+  KEEP: "유지",
+  REPEAT: "반복",
+  AMPLIFY: "확대",
+  CLARIFY: "명확화",
+  TEST: "확인 필요",
+  EXPAND: "확장",
+  CONNECT: "연결",
+  PROTECT: "보호",
+  REFRAME: "재정의",
+  CORRECT: "교정",
+  WATCH: "관찰 필요",
+  AVOID: "보류",
+  NO_CHANGE: "현행 유지",
 };
 
 const DECISION_TIER: Record<string, "act" | "test" | "watch" | "avoid"> = {
