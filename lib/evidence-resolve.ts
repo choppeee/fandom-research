@@ -94,7 +94,9 @@ export function buildEvidencePackage(params: {
   source: EvidenceSource;
 }): EvidencePackage {
   const validComments: CommentEvidence[] = [];
-  for (const id of params.evidenceIds) {
+  // evidenceIds 필드가 생기기 전에 저장된 구버전 job 데이터는 이 키 자체가 없다(undefined) -
+  // 방어적으로 빈 배열 취급한다.
+  for (const id of Array.isArray(params.evidenceIds) ? params.evidenceIds : []) {
     const row = params.source.comments.get(id);
     if (!row) continue; // 실제 존재하지 않는 ID는 조용히 제외 - 절대 지어내지 않는다
     const video = row.videoId ? params.source.videos.get(row.videoId) : undefined;

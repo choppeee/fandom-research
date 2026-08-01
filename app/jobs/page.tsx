@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { ReportHeader } from "@/components/report/ReportHeader";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "대기 중",
@@ -36,15 +37,17 @@ export default async function JobsListPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <main className="flex min-h-screen flex-col items-center gap-6 p-8">
-      <header className="flex w-full max-w-3xl items-center justify-between">
-        <h1 className="text-xl font-bold">내 리서치 목록</h1>
-        <Link href="/dashboard" className="text-sm underline underline-offset-2">
-          ← 새 리서치 시작
+    <div className="min-h-screen bg-bg">
+      <ReportHeader active="jobs" />
+      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10">
+      <header className="flex w-full items-center justify-between">
+        <h1 className="text-xl font-bold text-ink">내 리서치 목록</h1>
+        <Link href="/dashboard" className="text-sm text-brand hover:text-brand-hover">
+          + 새 리서치 시작
         </Link>
       </header>
 
-      <div className="w-full max-w-3xl overflow-hidden rounded-lg border border-border">
+      <div className="w-full overflow-hidden rounded-xl border border-line">
         <table className="w-full text-sm">
           <thead className="bg-muted text-left">
             <tr>
@@ -84,6 +87,7 @@ export default async function JobsListPage() {
           </tbody>
         </table>
       </div>
-    </main>
+      </main>
+    </div>
   );
 }
