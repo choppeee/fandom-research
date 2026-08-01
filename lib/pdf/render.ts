@@ -431,7 +431,9 @@ export async function renderHtmlToPdf(html: string): Promise<Buffer> {
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    // Puppeteer의 기본 30초 네비게이션 타임아웃은 서버리스 콜드 스타트 + 대용량 base64 폰트
+    // 임베드 상황에서 부족할 수 있어, 라우트의 maxDuration(90s) 안에서 여유있게 늘린다.
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 60_000 });
     const buffer = await page.pdf({ width: "1280px", height: "720px", printBackground: true });
     return Buffer.from(buffer);
   } finally {
