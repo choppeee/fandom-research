@@ -108,8 +108,10 @@ export async function getVideoComments(
         maxResults: String(Math.min(100, maxComments - comments.length)),
         ...(pageToken ? { pageToken } : {}),
       });
-    } catch {
-      // 댓글 비활성화, 삭제된 영상 등 - 해당 영상만 건너뜀
+    } catch (err) {
+      // 댓글 비활성화, 삭제된 영상 등 - 해당 영상만 건너뛰지만, 원인은 로그로 남겨
+      // 할당량 초과 등 진짜 문제를 조용히 숨기지 않는다.
+      console.error(`[getVideoComments] ${videoId} 댓글 수집 실패: ${err instanceof Error ? err.message : String(err)}`);
       return comments;
     }
 

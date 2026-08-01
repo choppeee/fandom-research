@@ -62,11 +62,13 @@ const STATUS_LABEL: Record<string, string> = {
   collect: "영상·댓글 수집 중",
   classify: "댓글 1차 분류 중",
   aggregate: "통계 집계 중",
+  context: "IP 유형 판별 중",
   modules: "심층 분석 중 (인식·심리·전환 등)",
   platform: "플랫폼별 분석 중",
   cross: "플랫폼 교차 분석 중",
   positioning: "포지셔닝 전략 도출 중",
   strategy_actions: "실행 전략·아이디어 생성 중",
+  editorial: "리포트 문체 편집 중",
   reference: "외부 레퍼런스 검색 중",
   executive_summary: "종합 요약 작성 중",
   visual_data: "시각화 데이터 추출 중",
@@ -100,33 +102,54 @@ export function JobDashboard({ jobId }: { jobId: string }) {
 
   // 파이프라인은 클라이언트가 /step을 계속 호출해야 진행된다
   // (긴 작업 하나를 서버에서 붙잡고 있지 않고, 짧은 단위로 쪼개 Vercel 시간제한을 피하기 위함).
+  // 같은 phase 안의 태스크(예: 심층 분석 모듈 10개)는 서로 독립적이라, 워커 여러 개를 동시에
+  // 돌려 병렬로 처리한다(서버의 claimNextTask가 원자적이라 안전하다). 워커 중 하나라도 done을
+  // 보면 나머지도 함께 멈춘다.
   // effect 내부 지역 변수로 취소 여부를 관리해, 이 effect 인스턴스가 시작한 루프만
   // 그 cleanup으로 멈춘다(개발 모드 StrictMode의 mount→cleanup→mount 이중 호출에도 안전).
   useEffect(() => {
     if (!isPipelineActive) return;
     let stopped = false;
+    const WORKER_COUNT = 4;
 
-    (async () => {
-      await fetch(`/api/jobs/${jobId}/run`, { method: "POST" });
+    async function worker() {
       while (!stopped) {
         // 네트워크 오류나 함수 타임아웃(예: 컨텍스트가 큰 태스크)으로 요청 자체가
         // 실패해도 "완료"로 오인해 루프를 멈추지 않는다 - 잠시 후 그냥 다시 시도한다.
         // (죽은 태스크는 서버의 stale-recovery가 다음 /step 호출 때 되돌려놓는다)
         let done = false;
+        let ok = false;
         try {
           const res = await fetch(`/api/jobs/${jobId}/step`, { method: "POST" });
           if (res.ok) {
             const data = await res.json();
             done = Boolean(data.done);
+            ok = true;
           }
         } catch {
           // 네트워크 오류 - 아래에서 재시도
         }
         if (stopped) break;
-        await fetchStatus();
-        if (done) break;
-        await new Promise((r) => setTimeout(r, 1000));
+        if (done) {
+          stopped = true;
+          await fetchStatus();
+          break;
+        }
+        // 성공적으로 태스크를 처리했으면 곧바로 다음 태스크로 넘어가고,
+        // 실패/일시적으로 할 일이 없을 때만 짧게 쉬어 서버 부하를 피한다.
+        await new Promise((r) => setTimeout(r, ok ? 100 : 1500));
       }
+    }
+
+    (async () => {
+      await fetch(`/api/jobs/${jobId}/run`, { method: "POST" });
+      const workers = Array.from({ length: WORKER_COUNT }, () => worker());
+      // 진행 상태 표시는 별도로 주기적으로 갱신 (워커마다 매번 fetchStatus를 부르면 중복 호출이 쌓인다)
+      const statusInterval = setInterval(() => {
+        if (!stopped) fetchStatus();
+      }, 1500);
+      await Promise.all(workers);
+      clearInterval(statusInterval);
     })();
 
     return () => {

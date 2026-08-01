@@ -1,6 +1,6 @@
 import { COLORS, GRAY, PAGE, confidenceLabel } from "./tokens";
 import { confidenceMeter, keywordConstellation } from "./charts";
-import type { StructuredInsight } from "../insight-types";
+import type { StructuredInsight, DecisionType, PossibleBottleneck } from "../insight-types";
 
 function esc(s: string): string {
   const plain = String(s ?? "").replace(/\*/g, "");
@@ -63,6 +63,49 @@ function confidenceBadge(level: string, accent: string): string {
   return `<span class="badge" style="background:${color}1A;color:${color};">${esc(confidenceLabel(level))}</span>`;
 }
 
+const DECISION_LABEL_KO: Record<string, string> = {
+  KEEP: "유지",
+  REPEAT: "반복",
+  AMPLIFY: "확대",
+  CLARIFY: "명확화",
+  TEST: "테스트",
+  EXPAND: "확장",
+  CONNECT: "연결",
+  PROTECT: "보호",
+  REFRAME: "재정의",
+  CORRECT: "교정",
+  WATCH: "관찰",
+  AVOID: "보류",
+  NO_CHANGE: "현행 유지",
+};
+const DECISION_TIER_COLOR: Record<string, "positive" | "accent" | "gray" | "risk"> = {
+  KEEP: "positive",
+  REPEAT: "positive",
+  AMPLIFY: "positive",
+  PROTECT: "positive",
+  CLARIFY: "positive",
+  CORRECT: "positive",
+  CONNECT: "positive",
+  TEST: "accent",
+  EXPAND: "accent",
+  REFRAME: "accent",
+  WATCH: "gray",
+  NO_CHANGE: "gray",
+  AVOID: "risk",
+};
+
+function decisionBadge(decision: DecisionType | undefined, accent: string): string {
+  if (!decision) return "";
+  const tier = DECISION_TIER_COLOR[decision] ?? "gray";
+  const color = tier === "positive" ? COLORS.positive : tier === "accent" ? accent : tier === "risk" ? COLORS.risk : GRAY[500];
+  return `<span class="badge" style="background:${color}1A;color:${color};">${esc(DECISION_LABEL_KO[decision] ?? decision)}</span>`;
+}
+
+function bottleneckNote(b: PossibleBottleneck | undefined): string {
+  if (!b) return "";
+  return `<div style="font-size:9.5px;color:${COLORS.warning};margin-top:8px;background:${COLORS.warningTint};border-radius:6px;padding:6px 8px;">병목 후보: ${esc(b.type)} — ${esc(b.evidence)}</div>`;
+}
+
 // ---------------------------------------------------------------------------
 // A. Cover (데이터 기반 그래픽: keyword constellation)
 // ---------------------------------------------------------------------------
@@ -106,6 +149,7 @@ export function kpiDashboardPage(params: {
   reportTitle: string;
   pageNum: number;
   kpis: { label: string; value: string; sub?: string }[];
+  disclaimer?: string;
   accent: string;
 }): string {
   const cards = params.kpis
@@ -121,7 +165,12 @@ export function kpiDashboardPage(params: {
   return `<section class="page" style="padding:${PAGE.margin}px;">
     ${header(params.breadcrumb)}
     <h2 style="font-size:24px;margin-top:70px;margin-bottom:6px;">KEY METRICS AT A GLANCE</h2>
-    <div style="font-size:12px;color:${GRAY[500]};margin-bottom:32px;">이번 리서치에서 실제로 계산된 핵심 지표입니다.</div>
+    <div style="font-size:12px;color:${GRAY[500]};margin-bottom:${params.disclaimer ? "16" : "32"}px;">이번 리서치에서 실제로 계산된 핵심 지표입니다.</div>
+    ${
+      params.disclaimer
+        ? `<div style="background:${COLORS.warningTint};border-left:3px solid ${COLORS.warning};border-radius:6px;padding:10px 14px;margin-bottom:20px;font-size:11px;color:${GRAY[800]};">${esc(params.disclaimer)}</div>`
+        : ""
+    }
     <div style="display:flex;flex-wrap:wrap;gap:16px;">${cards}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -224,7 +273,7 @@ export function insightModulePage(params: {
       ${header(params.breadcrumb)}
       ${bannerHtml}
       <div style="margin-top:${params.chapterIntro ? 8 : 40}px;">
-        <div style="font-size:10px;font-weight:700;color:${GRAY[500]};letter-spacing:0.5px;margin-bottom:10px;">${esc(params.moduleTitle.toUpperCase())}</div>
+        <div style="font-size:11px;font-weight:700;color:${GRAY[500]};margin-bottom:10px;">${esc(params.moduleTitle)}</div>
         <div class="chart-empty">${esc(params.notApplicableReason || "이번 데이터/IP 유형에는 적용하기 어렵습니다.")}</div>
       </div>
       ${footer(params.reportTitle, params.pageNum)}
@@ -240,7 +289,7 @@ export function insightModulePage(params: {
     .slice(0, 2)
     .map(
       (s) => `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid ${GRAY[100]};">
-      <div style="flex-shrink:0;margin-top:2px;">${confidenceBadge(s.confidence, params.accent)}</div>
+      <div style="flex-shrink:0;margin-top:2px;display:flex;gap:4px;">${confidenceBadge(s.confidence, params.accent)}${decisionBadge(s.decision, params.accent)}</div>
       <div style="flex:1;">
         <div style="font-size:11.5px;font-weight:700;color:${COLORS.text};margin-bottom:2px;">${esc(s.headline)}</div>
         <div style="font-size:10px;color:${GRAY[500]};line-height:1.5;">${esc(s.strategicImplication)}</div>
@@ -261,12 +310,14 @@ export function insightModulePage(params: {
         </div>
         <div style="width:${params.chartHtml ? "260" : "300"}px;flex-shrink:0;">
           <div style="background:${GRAY[50]};border-radius:8px;padding:12px 16px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
               <span style="font-size:9px;font-weight:700;color:${GRAY[500]};letter-spacing:0.4px;">EVIDENCE</span>
-              ${confidenceBadge(p.confidence, params.accent)}
+              <div style="display:flex;gap:4px;">${confidenceBadge(p.confidence, params.accent)}${decisionBadge(p.decision, params.accent)}</div>
             </div>
             ${evidenceItems}
+            <div style="font-size:9px;color:${GRAY[400]};margin-top:6px;">${esc(p.evidenceScope)}</div>
             ${p.theory ? `<div style="font-size:9.5px;color:${GRAY[400]};margin-top:8px;">이론: ${esc(p.theory)}</div>` : ""}
+            ${bottleneckNote(p.possibleBottleneck)}
           </div>
         </div>
         ${params.chartHtml ? `<div style="flex-shrink:0;">${params.chartHtml}</div>` : ""}
@@ -542,12 +593,45 @@ export function positioningPage(params: {
 }
 
 // ---------------------------------------------------------------------------
-// N. Strategy Page (P1/P2/P3, Insight -> Opportunity -> Hypothesis -> Test)
+// N. Strategy Page (13종 Decision을 4개 실행 티어로 묶어 배치)
 // ---------------------------------------------------------------------------
-const PRIORITY_LABEL: Record<string, string> = {
-  P1: "지금 바로 (0-30일)",
-  P2: "테스트 (30-60일)",
-  P3: "관찰 (60-90일)",
+const DECISION_LABEL: Record<string, string> = {
+  KEEP: "KEEP · 유지",
+  REPEAT: "REPEAT · 반복",
+  AMPLIFY: "AMPLIFY · 확대",
+  CLARIFY: "CLARIFY · 명확화",
+  TEST: "TEST · 테스트",
+  EXPAND: "EXPAND · 확장",
+  CONNECT: "CONNECT · 연결",
+  PROTECT: "PROTECT · 보호",
+  REFRAME: "REFRAME · 재정의",
+  CORRECT: "CORRECT · 교정",
+  WATCH: "WATCH · 관찰",
+  AVOID: "AVOID · 보류",
+  NO_CHANGE: "NO CHANGE · 현행 유지",
+};
+
+const DECISION_TIER: Record<string, "act" | "test" | "watch" | "avoid"> = {
+  KEEP: "act",
+  REPEAT: "act",
+  AMPLIFY: "act",
+  PROTECT: "act",
+  CLARIFY: "act",
+  CORRECT: "act",
+  CONNECT: "act",
+  TEST: "test",
+  EXPAND: "test",
+  REFRAME: "test",
+  WATCH: "watch",
+  NO_CHANGE: "watch",
+  AVOID: "avoid",
+};
+
+const TIER_LABEL: Record<string, string> = {
+  act: "지금 실행",
+  test: "먼저 검증",
+  watch: "관찰",
+  avoid: "보류",
 };
 
 export function strategyPage(params: {
@@ -555,44 +639,50 @@ export function strategyPage(params: {
   reportTitle: string;
   pageNum: number;
   recommendations: {
-    priority: string;
+    decision: string;
     title: string;
     insight: string;
     opportunity: string;
-    hypothesis: string;
     test: string;
+    decisionRule: string;
     confidence: string;
   }[];
   appendixIdeas: string[];
   accent: string;
 }): string {
-  const priorityColor = (p: string) => (p === "P1" ? params.accent : p === "P2" ? COLORS.warning : GRAY[500]);
+  const tierColor = (tier: string) =>
+    tier === "act" ? COLORS.positive : tier === "test" ? params.accent : tier === "avoid" ? COLORS.risk : GRAY[500];
 
-  const card = (r: (typeof params.recommendations)[number]) => `
+  const card = (r: (typeof params.recommendations)[number]) => {
+    const tier = DECISION_TIER[r.decision] ?? "watch";
+    return `
     <div style="border:1px solid ${GRAY[200]};border-radius:8px;padding:11px 14px;margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <span style="font-size:9px;font-weight:700;color:white;background:${priorityColor(r.priority)};border-radius:4px;padding:2px 7px;letter-spacing:0.3px;">${esc(PRIORITY_LABEL[r.priority] ?? r.priority)}</span>
+        <span style="font-size:9px;font-weight:700;color:white;background:${tierColor(tier)};border-radius:4px;padding:2px 7px;letter-spacing:0.3px;">${esc(DECISION_LABEL[r.decision] ?? r.decision)}</span>
         ${confidenceBadge(r.confidence, params.accent)}
       </div>
       <div style="font-size:12px;font-weight:700;color:${COLORS.text};margin-bottom:5px;">${esc(r.title)}</div>
-      <div style="font-size:9.5px;color:${GRAY[600]};line-height:1.5;">
-        <div><strong style="color:${GRAY[700]};">Insight</strong> ${esc(r.insight)}</div>
-        <div><strong style="color:${GRAY[700]};">Opportunity</strong> ${esc(r.opportunity)}</div>
-        <div><strong style="color:${GRAY[700]};">Hypothesis</strong> ${esc(r.hypothesis)}</div>
-        <div><strong style="color:${GRAY[700]};">Test</strong> ${esc(r.test)}</div>
+      <div style="font-size:9.5px;color:${GRAY[600]};line-height:1.55;">
+        <p style="margin-bottom:5px;">${esc(r.insight)} ${esc(r.opportunity)}</p>
+        <div style="margin-bottom:3px;"><strong style="color:${GRAY[700]};">검증</strong> ${esc(r.test)}</div>
+        <div><strong style="color:${GRAY[700]};">중단/확대 기준</strong> ${esc(r.decisionRule)}</div>
       </div>
     </div>`;
+  };
 
-  const cols = ["P1", "P2", "P3"].map((p) => {
-    const items = params.recommendations.filter((r) => r.priority === p);
+  const cols = ["act", "test", "watch", "avoid"].map((tier) => {
+    const items = params.recommendations.filter((r) => (DECISION_TIER[r.decision] ?? "watch") === tier);
     if (items.length === 0) return "";
-    return `<div style="flex:1;">${items.map(card).join("")}</div>`;
+    return `<div style="flex:1;">
+      <div style="font-size:9px;font-weight:700;color:${tierColor(tier)};letter-spacing:0.4px;margin-bottom:8px;">${TIER_LABEL[tier]}</div>
+      ${items.map(card).join("")}
+    </div>`;
   });
 
   return `<section class="page" style="padding:${PAGE.margin}px;">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:4px;">PRIORITY RECOMMENDATIONS</h2>
-    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">Insight → Opportunity → Hypothesis → Test 순서로 검증한다</div>
+    <h2 style="font-size:22px;margin-top:64px;margin-bottom:4px;">그래서 지금 무엇을 어떻게 움직여야 하는가</h2>
+    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">실제 데이터에 맞는 판단만 선택했다 — 모든 리포트가 같은 조합을 갖지 않는다</div>
     <div style="display:flex;gap:14px;">${cols.join("")}</div>
     ${
       params.appendixIdeas.length > 0

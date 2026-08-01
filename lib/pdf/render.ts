@@ -27,6 +27,7 @@ import type { ExecutiveSummaryResult } from "../insight-types";
 import type { ValidatedReference } from "../reference-search";
 import type { VisualData } from "../visual-data";
 import type { Aggregates } from "../aggregate";
+import type { ReportMode } from "../report-mode";
 
 export type ModuleContent = { moduleKey: string; title: string; content: string };
 
@@ -38,6 +39,7 @@ export type ReportData = {
   commentCount: number;
   postCount: number;
   generatedAt: string;
+  reportMode: ReportMode;
   stats: Aggregates;
   modules: ModuleContent[];
   visualData: VisualData;
@@ -141,6 +143,10 @@ export function buildReportHtml(data: ReportData): string {
       reportTitle,
       pageNum: pageNum.n++,
       accent,
+      disclaimer:
+        data.reportMode === "exploratory"
+          ? `표본이 ${data.videoCount + data.postCount}건의 콘텐츠, ${data.commentCount + data.postCount}건의 반응으로 작습니다. 이 리포트는 전체 ${data.keyword}에 대한 확정적 진단이 아니라, 현재 표본에서 발견된 반응 후보를 다룹니다.`
+          : undefined,
       kpis: [
         { label: "TOTAL DATA", value: String(data.videoCount + data.commentCount + data.postCount) },
         { label: "VIDEOS", value: String(data.videoCount) },
@@ -171,7 +177,8 @@ export function buildReportHtml(data: ReportData): string {
 
   const glance = data.executiveSummary.ipAtGlance;
   const glanceSteps = [
-    { label: "CURRENT POSITION", value: glance.currentPosition },
+    ...(data.executiveSummary.currentSituation ? [{ label: "CURRENT SITUATION", value: data.executiveSummary.currentSituation }] : []),
+    { label: "CURRENT PRIORITY", value: glance.currentPosition },
     { label: "CORE APPEAL", value: glance.coreAppeal },
     { label: "HIDDEN VALUE", value: glance.hiddenValue },
     { label: "TOP OPPORTUNITY", value: glance.topOpportunity },

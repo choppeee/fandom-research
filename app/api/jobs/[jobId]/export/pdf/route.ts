@@ -5,6 +5,7 @@ import { parseStoredModuleContent, type ExecutiveSummaryResult } from "@/lib/ins
 import type { ValidatedReference } from "@/lib/reference-search";
 import type { VisualData } from "@/lib/visual-data";
 import type { Aggregates } from "@/lib/aggregate";
+import type { ReportMode } from "@/lib/report-mode";
 
 export const maxDuration = 90;
 
@@ -59,10 +60,11 @@ export async function GET(
   const { data: insight } = await admin
     .from("job_insights")
     .select(
-      "top_keywords, sentiment_ratio, daily_trend, fandom_highlights, purchase_intent_summary, risk_alerts, research_references, visual_data, generated_at"
+      "top_keywords, sentiment_ratio, daily_trend, fandom_highlights, purchase_intent_summary, risk_alerts, research_references, visual_data, generated_at, raw_json"
     )
     .eq("job_id", jobId)
     .maybeSingle();
+  const reportMode: ReportMode = (insight?.raw_json as { reportMode?: ReportMode } | null)?.reportMode ?? "standard";
 
   const { data: modulesData } = await admin
     .from("job_analysis_modules")
@@ -118,6 +120,7 @@ export async function GET(
     generatedAt: insight?.generated_at
       ? new Date(insight.generated_at).toLocaleDateString("ko-KR")
       : new Date().toLocaleDateString("ko-KR"),
+    reportMode,
     stats,
     modules,
     visualData: (insight?.visual_data as VisualData) ?? EMPTY_VISUAL_DATA,

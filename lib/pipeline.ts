@@ -10,10 +10,22 @@ import {
   runPositioningSynthesis,
   runStrategySynthesis,
   runExecutiveSummarySynthesis,
+  runEditorialPass,
+  runSituationDiagnosis,
 } from "./synthesis-modules";
 import { searchValidatedReferences, type ValidatedReference } from "./reference-search";
 import { extractVisualData } from "./visual-data";
-import { wrapStoredContent, renderStoredContentToMarkdown } from "./insight-types";
+import {
+  wrapStoredContent,
+  renderStoredContentToMarkdown,
+  parseStoredModuleContent,
+  EMPTY_SITUATION_DIAGNOSIS,
+  type EditorialInsight,
+  type SituationDiagnosis,
+} from "./insight-types";
+import { classifyIpType, FALLBACK_IP_TYPE, type IpTypeInfo } from "./ip-classify";
+import { computeReportMode, type ReportMode } from "./report-mode";
+import { lintAndLog } from "./style-lint";
 import {
   claimNextTask,
   completeTask,
@@ -33,11 +45,13 @@ const PHASE_ORDER = [
   "collect",
   "classify",
   "aggregate",
+  "context",
   "modules",
   "platform",
   "cross",
   "positioning",
   "strategy_actions",
+  "editorial",
   "reference",
   "executive_summary",
   "visual_data",
@@ -49,14 +63,16 @@ type Phase = (typeof PHASE_ORDER)[number];
 const PHASE_START_PROGRESS: Record<Phase, number> = {
   collect: 0,
   classify: 15,
-  aggregate: 45,
-  modules: 50,
-  platform: 75,
-  cross: 82,
-  positioning: 85,
-  strategy_actions: 89,
-  reference: 93,
-  executive_summary: 95,
+  aggregate: 42,
+  context: 45,
+  modules: 48,
+  platform: 72,
+  cross: 78,
+  positioning: 81,
+  strategy_actions: 84,
+  editorial: 88,
+  reference: 91,
+  executive_summary: 94,
   visual_data: 97,
   assemble: 98,
 };
@@ -142,11 +158,17 @@ export async function stepJob(
 
   const started = await phaseTasksExist(admin, job.id, currentPhase);
   if (!started) {
-    // 이 phase의 태스크가 아직 하나도 생성되지 않음 -> 지금 생성
+    // 이 phase의 태스크가 아직 하나도 생성되지 않음 -> 지금 생성.
+    // 클라이언트가 여러 워커를 동시에 돌리므로(속도 향상), 짧은 지터 후 재확인해 같은 phase를
+    // 중복 enqueue하는 경쟁을 줄인다(완전한 락은 아니지만 충돌 확률을 크게 낮춘다).
     if (job.status !== currentPhase) {
       await setJobState(admin, job.id, { status: currentPhase, progress: PHASE_START_PROGRESS[currentPhase], error_message: null });
     }
-    await enqueuePhase(admin, job, currentPhase);
+    await new Promise((r) => setTimeout(r, 50 + Math.random() * 200));
+    const stillNotStarted = !(await phaseTasksExist(admin, job.id, currentPhase));
+    if (stillNotStarted) {
+      await enqueuePhase(admin, job, currentPhase);
+    }
     return { done: false };
   }
 
@@ -216,12 +238,21 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
           payload: { phase: "classify", platform: "x", ids: postIds.slice(i, i + COMMENT_BATCH_SIZE) },
         });
       }
+      if (tasks.length === 0) {
+        // 분류할 댓글/게시물이 하나도 없음(예: 댓글 수집 실패/비활성화) - 그래도 phase가
+        // "시작됨"으로 표시되도록 noop을 하나 넣어 무한 대기를 방지한다.
+        tasks.push({ type: "noop", payload: { phase: "classify" } });
+      }
       await enqueueTasks(admin, job.id, tasks);
       return;
     }
 
     case "aggregate":
       await enqueueTasks(admin, job.id, [{ type: "aggregate", payload: { phase: "aggregate" } }]);
+      return;
+
+    case "context":
+      await enqueueTasks(admin, job.id, [{ type: "classify_ip", payload: { phase: "context" } }]);
       return;
 
     case "modules":
@@ -273,6 +304,10 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
       await enqueueTasks(admin, job.id, [
         { type: "strategy_actions_ideas", payload: { phase: "strategy_actions" } },
       ]);
+      return;
+
+    case "editorial":
+      await enqueueTasks(admin, job.id, [{ type: "editorial_pass", payload: { phase: "editorial" } }]);
       return;
 
     case "reference":
@@ -355,14 +390,26 @@ async function loadCombinedData(admin: SupabaseClient, jobId: string) {
 async function getStoredStatsAndSample(
   admin: SupabaseClient,
   jobId: string
-): Promise<{ stats: Aggregates; sample: CommentSampleItem[]; platforms: ("youtube" | "x")[] }> {
+): Promise<{
+  stats: Aggregates;
+  sample: CommentSampleItem[];
+  platforms: ("youtube" | "x")[];
+  ipType: IpTypeInfo;
+  reportMode: ReportMode;
+  situation: SituationDiagnosis;
+}> {
   const { data: insight } = await admin
     .from("job_insights")
     .select("top_keywords, sentiment_ratio, daily_trend, fandom_highlights, purchase_intent_summary, risk_alerts, raw_json")
     .eq("job_id", jobId)
     .maybeSingle();
 
-  const raw = (insight?.raw_json ?? {}) as { sample?: CommentSampleItem[] };
+  const raw = (insight?.raw_json ?? {}) as {
+    sample?: CommentSampleItem[];
+    ipType?: IpTypeInfo;
+    reportMode?: ReportMode;
+    situation?: SituationDiagnosis;
+  };
   const stats: Aggregates = {
     topKeywords: insight?.top_keywords ?? [],
     sentimentRatio: insight?.sentiment_ratio ?? { positive: 0, negative: 0, neutral: 0 },
@@ -378,7 +425,30 @@ async function getStoredStatsAndSample(
   };
   const sample = raw.sample ?? [];
   const platforms = Array.from(new Set(sample.map((s) => s.platform)));
-  return { stats, sample, platforms: platforms.length ? platforms : ["youtube"] };
+  return {
+    stats,
+    sample,
+    platforms: platforms.length ? platforms : ["youtube"],
+    ipType: raw.ipType ?? FALLBACK_IP_TYPE,
+    reportMode: raw.reportMode ?? "standard",
+    situation: raw.situation ?? EMPTY_SITUATION_DIAGNOSIS,
+  };
+}
+
+async function getContentCounts(admin: SupabaseClient, jobId: string) {
+  const { count: videoCount } = await admin
+    .from("youtube_videos")
+    .select("id", { count: "exact", head: true })
+    .eq("job_id", jobId);
+  const { count: commentCount } = await admin
+    .from("youtube_comments")
+    .select("id", { count: "exact", head: true })
+    .eq("job_id", jobId);
+  const { count: postCount } = await admin
+    .from("social_posts")
+    .select("id", { count: "exact", head: true })
+    .eq("job_id", jobId);
+  return { videoCount: videoCount ?? 0, commentCount: commentCount ?? 0, postCount: postCount ?? 0 };
 }
 
 async function getAllModules(admin: SupabaseClient, jobId: string) {
@@ -600,6 +670,24 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       return;
     }
 
+    case "classify_ip": {
+      const { stats, sample } = await getStoredStatsAndSample(admin, job.id);
+      const { videoCount, commentCount, postCount } = await getContentCounts(admin, job.id);
+      const platformCount = postCount > 0 ? 2 : 1;
+      const reportMode = computeReportMode({ commentCount, postCount, videoCount, platformCount });
+      const ipType = await classifyIpType(job.keyword, sample);
+      const situation = await runSituationDiagnosis({ keyword: job.keyword, ipType, reportMode, stats, sample });
+
+      const { data: existing } = await admin.from("job_insights").select("raw_json").eq("job_id", job.id).maybeSingle();
+      const raw = (existing?.raw_json ?? {}) as Record<string, unknown>;
+      const { error } = await admin
+        .from("job_insights")
+        .update({ raw_json: { ...raw, ipType, reportMode, situation } })
+        .eq("job_id", job.id);
+      if (error) throw new Error(`IP 유형/리포트 모드/상태 진단 저장 실패: ${error.message}`);
+      return;
+    }
+
     case "noop":
       return;
 
@@ -613,7 +701,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
     const def = MODULE_DEFINITIONS.find((d) => d.key === moduleKey);
     if (!def) return;
 
-    const { stats, sample, platforms } = await getStoredStatsAndSample(admin, job.id);
+    const { stats, sample, platforms, ipType, reportMode, situation } = await getStoredStatsAndSample(admin, job.id);
     const { title, result } = await runAnalysisModule(def, {
       keyword: job.keyword,
       periodStart: job.period_start,
@@ -621,6 +709,9 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       platforms,
       stats,
       sample,
+      ipType,
+      reportMode,
+      situation,
     });
     await saveModule(admin, job.id, def.key, null, { title, content: wrapStoredContent({ kind: "insights", data: result }) });
     return;
@@ -628,7 +719,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
 
   if (task.task_type === "platform_youtube" || task.task_type === "platform_x") {
     const platform = task.task_type === "platform_youtube" ? "youtube" : "x";
-    const { stats, sample } = await getStoredStatsAndSample(admin, job.id);
+    const { stats, sample, ipType, reportMode, situation } = await getStoredStatsAndSample(admin, job.id);
     const filteredSample = sample.filter((s) => s.platform === platform);
     if (platform === "x" && filteredSample.length === 0) return; // X 데이터 없으면 스킵
 
@@ -637,6 +728,9 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
+      ipType,
+      reportMode,
+      situation,
       stats,
       sample: filteredSample.length ? filteredSample : sample,
     });
@@ -652,19 +746,23 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
     const yt = modules.find((m) => m.module_key === "platform_youtube");
     const x = modules.find((m) => m.module_key === "platform_x");
     if (!yt || !x) return;
+    const { ipType, reportMode, situation } = await getStoredStatsAndSample(admin, job.id);
 
     const result = await runInsightSynthesis({
-      title: "Cross-Platform Insight",
+      title: "플랫폼마다 반응이 어떻게 다른가",
       instruction: `YouTube와 X 두 플랫폼의 분석을 비교하여 AGREEMENT(공통 인식), PLATFORM-SPECIFIC(특정 플랫폼에서만 강한 인식),
 CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체를 전략적 Insight로 활용하라.`,
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
+      ipType,
+      reportMode,
+      situation,
       inputModulesText: modulesToPromptText([yt, x]),
       maxTokens: 2500,
     });
     await saveModule(admin, job.id, "cross_platform", "cross", {
-      title: "Cross-Platform Insight",
+      title: "플랫폼마다 반응이 어떻게 다른가",
       content: wrapStoredContent({ kind: "insights", data: result }),
     });
     return;
@@ -672,14 +770,18 @@ CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체�
 
   if (task.task_type === "positioning_strategy") {
     const modules = await getAllModules(admin, job.id);
+    const { ipType, reportMode, situation } = await getStoredStatsAndSample(admin, job.id);
     const result = await runPositioningSynthesis({
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
+      ipType,
+      reportMode,
+      situation,
       inputModulesText: modulesToPromptText(modules),
     });
     await saveModule(admin, job.id, "positioning_strategy", null, {
-      title: "Positioning Opportunities & Recommended Position",
+      title: "그래서 어떤 자리를 잡아야 하는가",
       content: wrapStoredContent({ kind: "positioning", data: result }),
     });
     return;
@@ -687,16 +789,64 @@ CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체�
 
   if (task.task_type === "strategy_actions_ideas") {
     const modules = await getAllModules(admin, job.id);
+    const { ipType, reportMode, situation } = await getStoredStatsAndSample(admin, job.id);
     const result = await runStrategySynthesis({
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
+      ipType,
+      reportMode,
+      situation,
       inputModulesText: modulesToPromptText(modules),
     });
     await saveModule(admin, job.id, "strategy_actions_ideas", null, {
-      title: "Strategic Actions & Opportunity Ideas",
+      title: "그래서 지금 무엇을 어떻게 움직여야 하는가",
       content: wrapStoredContent({ kind: "strategy", data: result }),
     });
+    return;
+  }
+
+  if (task.task_type === "editorial_pass") {
+    const modules = await getAllModules(admin, job.id);
+    const { ipType, reportMode, situation } = await getStoredStatsAndSample(admin, job.id);
+
+    const flattened: EditorialInsight[] = [];
+    for (const m of modules) {
+      const parsed = parseStoredModuleContent(m.content_md);
+      if (!parsed || parsed.kind !== "insights" || !parsed.data.applicable) continue;
+      for (const insight of parsed.data.insights) {
+        flattened.push({ ...insight, moduleKey: m.module_key });
+      }
+    }
+    if (flattened.length === 0) return;
+
+    const edited = await runEditorialPass({ keyword: job.keyword, ipType, reportMode, situation, insights: flattened });
+    lintAndLog(
+      `job ${job.id}`,
+      edited.flatMap((i) => [i.headline, i.interpretation, i.whyItMatters, i.strategicImplication])
+    );
+
+    const byModule = new Map<string, EditorialInsight[]>();
+    for (const ins of edited) {
+      const list = byModule.get(ins.moduleKey) ?? [];
+      list.push(ins);
+      byModule.set(ins.moduleKey, list);
+    }
+
+    for (const m of modules) {
+      const parsed = parseStoredModuleContent(m.content_md);
+      if (!parsed || parsed.kind !== "insights" || !parsed.data.applicable) continue;
+      const newInsights = byModule.get(m.module_key) ?? [];
+      const updated = {
+        applicable: newInsights.length > 0,
+        notApplicableReason: newInsights.length > 0 ? "" : "편집 단계에서 다른 모듈과 중복되어 제외됨",
+        insights: newInsights.map(({ moduleKey: _moduleKey, ...rest }) => rest),
+      };
+      await saveModule(admin, job.id, m.module_key, m.platform, {
+        title: m.title,
+        content: wrapStoredContent({ kind: "insights", data: updated }),
+      });
+    }
     return;
   }
 
@@ -718,10 +868,14 @@ CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체�
 
   if (task.task_type === "executive_summary") {
     const modules = await getAllModules(admin, job.id);
+    const { ipType, reportMode, situation } = await getStoredStatsAndSample(admin, job.id);
     const result = await runExecutiveSummarySynthesis({
       keyword: job.keyword,
       periodStart: job.period_start,
       periodEnd: job.period_end,
+      ipType,
+      reportMode,
+      situation,
       inputModulesText: modulesToPromptText(modules),
     });
     await saveModule(admin, job.id, "executive_summary", null, {
@@ -791,18 +945,7 @@ async function assembleReport(admin: SupabaseClient, job: Job) {
     .eq("job_id", job.id)
     .maybeSingle();
 
-  const { count: videoCount } = await admin
-    .from("youtube_videos")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", job.id);
-  const { count: commentCount } = await admin
-    .from("youtube_comments")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", job.id);
-  const { count: postCount } = await admin
-    .from("social_posts")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", job.id);
+  const { videoCount, commentCount, postCount } = await getContentCounts(admin, job.id);
 
   const execModule = byKey.get("executive_summary");
   const summary = execModule
