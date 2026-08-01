@@ -906,7 +906,7 @@ CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체�
 // 최종 리포트 조립 (LLM 호출 없이 로컬에서 모듈들을 정해진 순서로 합친다)
 // ---------------------------------------------------------------------------
 
-const REPORT_ORDER = [
+export const REPORT_ORDER = [
   "audience_perception",
   "character_traits",
   "appeal_drivers",

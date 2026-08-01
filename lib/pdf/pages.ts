@@ -1,6 +1,8 @@
 import { COLORS, GRAY, PAGE, confidenceLabel } from "./tokens";
 import { confidenceMeter, keywordConstellation } from "./charts";
 import type { StructuredInsight, DecisionType, PossibleBottleneck } from "../insight-types";
+import type { CommentEvidence } from "../evidence-types";
+import type { PdfEvidencePackage } from "./evidence-types";
 
 function esc(s: string): string {
   const plain = String(s ?? "").replace(/\*/g, "");
@@ -327,6 +329,98 @@ export function insightModulePage(params: {
     <div style="position:absolute;left:${PAGE.margin}px;right:${PAGE.margin}px;bottom:56px;background:${params.accent}0F;border-left:3px solid ${params.accent};border-radius:8px;padding:11px 18px;">
       <div style="font-size:9px;font-weight:700;color:${params.accent};letter-spacing:0.4px;margin-bottom:3px;">STRATEGIC IMPLICATION</div>
       <div style="font-size:11.5px;color:${GRAY[800]};">${esc(p.whyItMatters)} ${esc(p.strategicImplication)}</div>
+    </div>
+    ${footer(params.reportTitle, params.pageNum)}
+  </section>`;
+}
+
+// ---------------------------------------------------------------------------
+// F-2. Evidence Page — 원본 영상/댓글 근거를 에디토리얼 카드로 (Insight 페이지 바로 다음에 붙는다)
+// ---------------------------------------------------------------------------
+
+function pdfCommentQuote(c: CommentEvidence, tag?: string): string {
+  return `<div style="background:${GRAY[50]};border-radius:8px;padding:10px 12px;">
+    ${tag ? `<div style="font-size:8.5px;font-weight:700;color:${GRAY[500]};letter-spacing:0.3px;margin-bottom:4px;">${esc(tag)}</div>` : ""}
+    <div style="font-size:11px;color:${GRAY[800]};line-height:1.55;">&ldquo;${esc(c.text)}&rdquo;</div>
+    <div style="font-size:9px;color:${GRAY[500]};margin-top:5px;">좋아요 ${c.likeCount.toLocaleString("ko-KR")}${c.videoTitle ? ` · ${esc(c.videoTitle)}` : ""} · Evidence ID ${esc(c.commentId)}</div>
+  </div>`;
+}
+
+function pdfQrBlock(qrDataUri: string | null, label: string): string {
+  if (!qrDataUri) return "";
+  return `<div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+    <img src="${qrDataUri}" width="64" height="64" style="border-radius:4px;" />
+    <div style="font-size:9.5px;color:${GRAY[600]};line-height:1.4;">${esc(label)}</div>
+  </div>`;
+}
+
+/** Insight 하나를 뒷받침하는 실제 영상/댓글 근거를 보여주는 전용 페이지.
+ * visualRecommendation이 no_visual이면 이 페이지 자체를 만들지 않는다(호출부에서 필터링). */
+export function evidencePage(params: {
+  breadcrumb: string;
+  reportTitle: string;
+  pageNum: number;
+  insightHeadline: string;
+  pkg: PdfEvidencePackage;
+  accent: string;
+}): string {
+  const { pkg, accent } = params;
+  const heroVideo = pkg.supportingVideos[0];
+
+  const videoCardHtml = heroVideo
+    ? `<div style="display:flex;gap:20px;">
+        <div style="width:340px;flex-shrink:0;">
+          <div style="width:340px;height:191px;border-radius:10px;overflow:hidden;background:${GRAY[900]};position:relative;">
+            ${
+              heroVideo.thumbnailDataUri
+                ? `<img src="${heroVideo.thumbnailDataUri}" width="340" height="191" style="object-fit:cover;display:block;" />`
+                : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:${GRAY[400]};font-size:10.5px;">썸네일을 불러오지 못함</div>`
+            }
+          </div>
+          <div style="margin-top:8px;font-size:12px;font-weight:700;color:${COLORS.text};line-height:1.4;">${esc(heroVideo.title || "제목 없음")}</div>
+          <div style="font-size:10px;color:${GRAY[500]};margin-top:2px;">${esc(heroVideo.channelTitle)}${heroVideo.publishedAt ? ` · ${esc(heroVideo.publishedAt.slice(0, 10))}` : ""}</div>
+          <div style="font-size:9.5px;color:${GRAY[500]};margin-top:4px;">이 근거로 쓰인 댓글 ${heroVideo.commentCount}건</div>
+          ${pdfQrBlock(pkg.qrDataUri, pkg.qrTargetLabel)}
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+          ${heroVideo.representativeComments.map((c) => pdfCommentQuote(c)).join("")}
+        </div>
+      </div>`
+    : "";
+
+  const collageHtml =
+    !heroVideo && pkg.supportingComments.length > 0
+      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          ${pkg.supportingComments.slice(0, 6).map((c) => pdfCommentQuote(c)).join("")}
+        </div>`
+      : "";
+
+  const secondaryVideosHtml =
+    pkg.supportingVideos.length > 1
+      ? `<div style="margin-top:16px;display:flex;gap:12px;">
+          ${pkg.supportingVideos
+            .slice(1, 3)
+            .map(
+              (v) => `<div style="flex:1;display:flex;gap:8px;align-items:center;background:${GRAY[50]};border-radius:8px;padding:8px;">
+                <div style="width:72px;height:40px;flex-shrink:0;border-radius:4px;overflow:hidden;background:${GRAY[300]};">
+                  ${v.thumbnailDataUri ? `<img src="${v.thumbnailDataUri}" width="72" height="40" style="object-fit:cover;" />` : ""}
+                </div>
+                <div style="font-size:9.5px;color:${GRAY[700]};line-height:1.3;">${esc(v.title || "제목 없음")}<br/><span style="color:${GRAY[500]};">${esc(v.channelTitle)}</span></div>
+              </div>`
+            )
+            .join("")}
+        </div>`
+      : "";
+
+  return `<section class="page" style="padding:${PAGE.margin}px;">
+    ${header(params.breadcrumb)}
+    <div style="margin-top:40px;">
+      <div style="font-size:9px;font-weight:700;color:${accent};letter-spacing:0.5px;margin-bottom:6px;">VIDEO &amp; COMMENT EVIDENCE</div>
+      <h3 style="font-size:16px;color:${COLORS.text};margin-bottom:20px;max-width:1000px;line-height:1.4;">${esc(params.insightHeadline)}</h3>
+      ${videoCardHtml}
+      ${collageHtml}
+      ${secondaryVideosHtml}
+      <div style="margin-top:16px;font-size:9.5px;color:${GRAY[500]};">${esc([pkg.repetitionSummary, pkg.engagementSummary].filter(Boolean).join(" · "))}</div>
     </div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -703,23 +797,26 @@ export function referencePage(params: {
   breadcrumb: string;
   reportTitle: string;
   pageNum: number;
-  academic: { title: string; url: string; note: string }[];
-  context: { title: string; url: string; note: string }[];
+  academic: { title: string; url: string; note: string; qrDataUri?: string | null }[];
+  context: { title: string; url: string; note: string; qrDataUri?: string | null }[];
   accent: string;
 }): string {
-  const cardsFor = (refs: { title: string; url: string; note: string }[]) =>
+  const cardsFor = (refs: { title: string; url: string; note: string; qrDataUri?: string | null }[]) =>
     refs
       .slice(0, 2)
       .map(
-        (r) => `<div style="width:calc(50% - 8px);border:1px solid ${GRAY[200]};border-radius:10px;padding:14px;">
-      <div style="font-size:12px;font-weight:700;color:${COLORS.text};margin-bottom:6px;line-height:1.4;">${esc(r.title)}</div>
-      <div style="font-size:9.5px;color:${GRAY[500]};margin-bottom:8px;">${esc(r.note)}</div>
-      <div style="font-size:8.5px;color:${GRAY[400]};word-break:break-all;">${esc(r.url)}</div>
+        (r) => `<div style="width:calc(50% - 8px);border:1px solid ${GRAY[200]};border-radius:10px;padding:14px;display:flex;gap:12px;">
+      <div style="flex:1;">
+        <div style="font-size:12px;font-weight:700;color:${COLORS.text};margin-bottom:6px;line-height:1.4;">${esc(r.title)}</div>
+        <div style="font-size:9.5px;color:${GRAY[500]};margin-bottom:8px;">${esc(r.note)}</div>
+        <div style="font-size:8.5px;color:${GRAY[400]};word-break:break-all;">${esc(r.url)}</div>
+      </div>
+      ${r.qrDataUri ? `<img src="${r.qrDataUri}" width="52" height="52" style="flex-shrink:0;border-radius:4px;" />` : ""}
     </div>`
       )
       .join("");
 
-  const section = (title: string, refs: { title: string; url: string; note: string }[]) =>
+  const section = (title: string, refs: { title: string; url: string; note: string; qrDataUri?: string | null }[]) =>
     refs.length === 0
       ? ""
       : `<div style="margin-bottom:18px;">

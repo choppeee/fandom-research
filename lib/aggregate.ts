@@ -150,6 +150,7 @@ export function computeAggregates(
 
 export type CommentSampleItem = {
   commentId: string;
+  videoId: string;
   text: string;
   likeCount: number;
   sentiment: CommentAnalysisResult["sentiment"];
@@ -175,6 +176,7 @@ export function buildCommentSample(
     if (!c) return null;
     return {
       commentId: a.commentId,
+      videoId: c.videoId,
       text: c.textOriginal.slice(0, 280),
       likeCount: c.likeCount,
       sentiment: a.sentiment,

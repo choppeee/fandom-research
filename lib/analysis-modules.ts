@@ -33,6 +33,10 @@ const MODULE_ADDENDUM = `
   공통점 -> 예상과 실제의 차이 -> 그 차이의 의미 순서로 자연스러운 문단을 쓴다. Observation/Evidence 같은
   영문 라벨을 절대 노출하지 않는다.
 - evidence_scope에 이 발견이 전체 표본에 적용되는지, 특정 영상/게시물/세그먼트에 한정되는지 반드시 밝힌다.
+- evidence 배열의 항목이 [대표 댓글/게시물 샘플]의 실제 댓글을 인용한 것이면, 그 댓글의 comment_id를
+  evidence_ids에 담는다. 통계·수치 요약이라 특정 댓글을 인용하지 않았으면 evidence_ids는 비워둔다.
+  샘플에 없는 comment_id를 만들어내지 않는다 - 이 값은 나중에 리포트에서 실제 영상 썸네일/댓글 카드를
+  보여주는 데 쓰이므로, 근거 없이 채우면 사실과 다른 화면이 만들어진다.
 - surface_expression(사람들이 실제로 쓴 말) / emotional_meaning(그 말의 감정) / underlying_intent(실제
   원하는 것)를 구분해서 채운다. underlying_intent는 반복 맥락·함께 등장하는 표현·행동 신호로 뒷받침될
   때만 채우고, 근거 없이 마음대로 상상하지 않는다. 표면 표현을 그대로 전략으로 옮기지 않는다.

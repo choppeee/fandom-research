@@ -57,7 +57,9 @@ const COMPRESSION_NOTE = `
 surface_expression/emotional_meaning/underlying_intent를 구분해서 채우되, underlying_intent는 근거 없이
 상상하지 않는다(반복 맥락·함께 등장하는 표현·행동 신호로 뒷받침될 때만). possible_bottleneck은 실제로
 반응과 성과 사이 단절이 반복 확인될 때만 채우고, 그렇지 않으면 생략한다 - 병목을 억지로 만들지 않는다.
-decision은 실제로 판단이 필요할 때만 채우고, "문제 없음/현재 유지가 낫다"면 NO_CHANGE도 정당한 답이다.`;
+decision은 실제로 판단이 필요할 때만 채우고, "문제 없음/현재 유지가 낫다"면 NO_CHANGE도 정당한 답이다.
+evidence가 실제 댓글 인용이면 그 댓글의 comment_id를 evidence_ids에 담는다(제공된 샘플에 있는 것만,
+지어내지 않는다). 요약 통계라 특정 댓글을 인용하지 않았으면 evidence_ids는 비워둔다.`;
 
 /** 본격적인 모듈 분석 전에, 이 IP가 지금 어떤 상태에 있고 무엇을 우선 확인해야 하는지 정한다.
  * "모든 IP에 병목이 있다"고 가정하지 않기 위한 단계 - 문제가 없다면 그렇게 판단한다. */
@@ -363,6 +365,7 @@ export async function runEditorialPass(params: {
 headline: ${i.headline}
 interpretation: ${i.interpretation}
 evidence: ${i.evidence.join(" / ")}
+evidence_ids: ${i.evidenceIds.join(", ")}
 evidence_scope: ${i.evidenceScope}
 surface_expression: ${i.surfaceExpression}
 emotional_meaning: ${i.emotionalMeaning}
@@ -404,6 +407,9 @@ ${ipTypeLine(params.ipType)}
    - amplification_risk가 필요한데(강점을 더 키우자는 내용인데) 비어 있지 않은가
    - evidence_scope와 결론의 적용 범위가 정직한가(소수 사례를 전체로 확대하지 않았는가)
 4. 절제 — 근거보다 앞서 나가는 결론이나 실행 제안이 있으면 완화한다.
+5. evidence_ids 보존 — 인용한 댓글이 가리키는 대상이 바뀌지 않는 한, 원본 insight의 evidence_ids를
+   그대로 유지한다. 두 insight를 병합하면 두 evidence_ids를 합친다. 입력에 없던 새 comment_id를
+   만들어내지 않는다(입력에 있는 evidence_ids 값만 사용 가능).
 
 원본 개수보다 같거나 적은 개수로 반환하라(병합/삭제는 가능, 새 insight를 지어내지 않는다). 반드시 도구
 호출로만 답한다.

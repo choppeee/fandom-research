@@ -46,6 +46,7 @@ export type StructuredInsight = {
   headline: string;
   interpretation: string;
   evidence: string[];
+  evidenceIds: string[]; // evidence[]가 실제로 인용한 원본 댓글의 commentId (제공된 샘플에 있는 것만, 근거 없이 만들지 않음)
   evidenceScope: string; // 이 발견이 전체 표본에 적용되는지, 특정 콘텐츠/세그먼트에 한정되는지
   // 표면 표현 -> 감정 -> 실제 의도 4계층 (사람들이 쓴 말을 그대로 전략으로 옮기지 않기 위함)
   surfaceExpression: string; // 사람들이 실제로 사용한 말
@@ -128,6 +129,12 @@ export const INSIGHT_ITEM_SCHEMA = {
       type: "string" as const,
       description:
         '이 발견이 어디까지 유효한지 한국어 짧은 문구로. 예: "전체 표본에서 반복 확인", "특정 영상 1건에 편중", "신규 유입 세그먼트에 한정", "표본이 작아 후보 수준"',
+    },
+    evidence_ids: {
+      type: "array" as const,
+      items: { type: "string" as const },
+      description:
+        "evidence 배열에서 실제 댓글을 인용했다면, 그 댓글의 comment_id를 여기 담는다(제공된 [대표 댓글/게시물 샘플]에 있는 comment_id만 사용). 통계 수치나 요약이라 특정 댓글을 인용하지 않았으면 비워둔다. 샘플에 없는 ID를 지어내지 않는다.",
     },
     surface_expression: {
       type: "string" as const,
@@ -243,6 +250,7 @@ function parseInsight(i: any): StructuredInsight {
     headline: i.headline ?? "",
     interpretation: i.interpretation ?? "",
     evidence: Array.isArray(i.evidence) ? i.evidence : [],
+    evidenceIds: Array.isArray(i.evidence_ids) ? i.evidence_ids.filter((id: unknown) => typeof id === "string") : [],
     evidenceScope: i.evidence_scope ?? "",
     surfaceExpression: i.surface_expression ?? "",
     emotionalMeaning: i.emotional_meaning ?? "",

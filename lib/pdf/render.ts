@@ -19,7 +19,9 @@ import {
   strategyPage,
   referencePage,
   backCoverPage,
+  evidencePage,
 } from "./pages";
+import type { PdfEvidencePackage } from "./evidence-types";
 import { barChartHorizontal, donutChart, areaTimelineChart, funnelChart, matrix2x2, bipolarAxisChart } from "./charts";
 import { markdownToBlocks, paginateBlocks, stripLeadingHeading } from "./markdown";
 import { parseStoredModuleContent } from "../insight-types";
@@ -45,6 +47,11 @@ export type ReportData = {
   visualData: VisualData;
   researchReferences: ValidatedReference[];
   executiveSummary: ExecutiveSummaryResult;
+  // moduleKey별 primary insight(insights[0])의 Evidence Package. 키 형식: `${moduleKey}-0`.
+  // PDF export 라우트가 렌더 전에 썸네일/QR까지 다 fetch해서 채워 넣는다(pages.ts는 항상 동기).
+  evidenceByInsightId?: Record<string, PdfEvidencePackage>;
+  // 레퍼런스 URL -> QR 코드 base64. 마찬가지로 라우트가 미리 생성해서 채운다.
+  referenceQrCodes?: Record<string, string>;
 };
 
 const FONT_REGULAR = path.join(process.cwd(), "assets/fonts/NanumGothic-Regular.ttf");
@@ -68,7 +75,8 @@ function renderModulePages(
   reportTitle: string,
   accent: string,
   pageNumRef: { n: number },
-  chapterIntro?: ChapterIntro
+  chapterIntro?: ChapterIntro,
+  evidenceByInsightId?: Record<string, PdfEvidencePackage>
 ): string[] {
   if (!mod || !mod.content.trim()) return [];
   const parsed = parseStoredModuleContent(mod.content);
@@ -79,7 +87,7 @@ function renderModulePages(
       // 적용 어려움 - 데이터 없는 페이지를 억지로 넣지 않고 건너뛴다.
       return [];
     }
-    return [
+    const pages = [
       insightModulePage({
         breadcrumb,
         reportTitle,
@@ -93,6 +101,22 @@ function renderModulePages(
         accent,
       }),
     ];
+    // 핵심(primary) insight에 실제 원본 영상/댓글 근거가 있으면, 바로 다음 장에 Evidence 페이지를 덧붙인다.
+    // no_visual이면(근거가 통계뿐이면) 페이지를 만들지 않는다 - 시각자료를 억지로 채우지 않는다.
+    const evidencePkg = evidenceByInsightId?.[`${mod.moduleKey}-0`];
+    if (evidencePkg && evidencePkg.visualRecommendation !== "no_visual" && r.insights[0]) {
+      pages.push(
+        evidencePage({
+          breadcrumb,
+          reportTitle,
+          pageNum: pageNumRef.n++,
+          insightHeadline: r.insights[0].headline,
+          pkg: evidencePkg,
+          accent,
+        })
+      );
+    }
+    return pages;
   }
 
   // 레거시 자유 마크다운 폴백 (구버전 job과의 하위호환)
@@ -118,7 +142,7 @@ export function buildReportHtml(data: ReportData): string {
 
   const byKey = new Map(data.modules.map((m) => [m.moduleKey, m]));
   const modPages = (key: string, breadcrumb: string, chapterIntro?: ChapterIntro) =>
-    renderModulePages(byKey.get(key), breadcrumb, reportTitle, accent, pageNum, chapterIntro);
+    renderModulePages(byKey.get(key), breadcrumb, reportTitle, accent, pageNum, chapterIntro, data.evidenceByInsightId);
 
   // --- Cover ---
   pages.push(
@@ -403,8 +427,8 @@ export function buildReportHtml(data: ReportData): string {
         breadcrumb: "07 References",
         reportTitle,
         pageNum: pageNum.n++,
-        academic: academic.map((r) => ({ title: r.title, url: r.url, note: r.connectionNote || r.snippet })),
-        context: context.map((r) => ({ title: r.title, url: r.url, note: r.connectionNote || r.snippet })),
+        academic: academic.map((r) => ({ title: r.title, url: r.url, note: r.connectionNote || r.snippet, qrDataUri: data.referenceQrCodes?.[r.url] })),
+        context: context.map((r) => ({ title: r.title, url: r.url, note: r.connectionNote || r.snippet, qrDataUri: data.referenceQrCodes?.[r.url] })),
         accent,
       })
     );

@@ -6,6 +6,9 @@ import type { ValidatedReference } from "@/lib/reference-search";
 import type { VisualData } from "@/lib/visual-data";
 import type { Aggregates } from "@/lib/aggregate";
 import type { ReportMode } from "@/lib/report-mode";
+import { loadEvidenceSource } from "@/lib/evidence-resolve";
+import { buildPdfEvidenceMap } from "@/lib/pdf/evidence-resolve";
+import { qrDataUri } from "@/lib/pdf/qrcode";
 
 export const maxDuration = 90;
 
@@ -89,6 +92,14 @@ export async function GET(
     .filter((m) => m.module_key !== "executive_summary")
     .map((m) => ({ moduleKey: m.module_key, title: m.title ?? m.module_key, content: m.content_md ?? "" }));
 
+  // Evidence Visualization: 원본 영상/댓글 근거를 fetch해서 PDF용 카드 데이터로 미리 만들어둔다.
+  // 실패해도(썸네일 fetch 실패 등) PDF 생성 자체는 막지 않는다.
+  const evidenceSource = await loadEvidenceSource(admin, jobId);
+  const evidenceByInsightId = await buildPdfEvidenceMap(
+    (modulesData ?? []).filter((m) => m.module_key !== "executive_summary"),
+    evidenceSource
+  );
+
   const execModule = (modulesData ?? []).find((m) => m.module_key === "executive_summary");
   const execParsed = execModule ? parseStoredModuleContent(execModule.content_md ?? "") : null;
   const executiveSummary =
@@ -110,6 +121,14 @@ export async function GET(
     ),
   };
 
+  const referenceUrls = ((insight?.research_references as ValidatedReference[] | null) ?? []).map((r) => r.url);
+  const referenceQrEntries = await Promise.all(
+    referenceUrls.map(async (url) => [url, await qrDataUri(url)] as const)
+  );
+  const referenceQrCodes: Record<string, string> = Object.fromEntries(
+    referenceQrEntries.filter((entry): entry is [string, string] => entry[1] !== null)
+  );
+
   const reportData: ReportData = {
     keyword: job.keyword,
     periodStart: job.period_start,
@@ -126,6 +145,8 @@ export async function GET(
     visualData: (insight?.visual_data as VisualData) ?? EMPTY_VISUAL_DATA,
     researchReferences: (insight?.research_references as ValidatedReference[] | null) ?? [],
     executiveSummary,
+    evidenceByInsightId,
+    referenceQrCodes,
   };
 
   let pdfBuffer: Buffer;

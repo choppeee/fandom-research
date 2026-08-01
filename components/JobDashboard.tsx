@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { StructuredInsight } from "@/lib/insight-types";
+import type { EvidencePackage } from "@/lib/evidence-types";
+import { InsightCard } from "@/components/evidence/InsightCard";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -48,6 +51,13 @@ type Insight = {
   riskAlerts: { level: "caution" | "high_risk"; description: string; example_comment_id: string | null }[];
 };
 
+type ModuleWithEvidence = {
+  moduleKey: string;
+  title: string;
+  kind: "insights" | "legacy";
+  insights?: (StructuredInsight & { evidenceId: string; evidencePackage: EvidencePackage })[];
+};
+
 type CommentItem = {
   commentId: string;
   videoId: string;
@@ -86,6 +96,7 @@ const SENTIMENT_COLORS: Record<string, string> = {
 export function JobDashboard({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<JobStatus | null>(null);
   const [insight, setInsight] = useState<Insight | null>(null);
+  const [modules, setModules] = useState<ModuleWithEvidence[]>([]);
   const insightFetched = useRef(false);
   const [retryTick, setRetryTick] = useState(0);
 
@@ -163,7 +174,10 @@ export function JobDashboard({ jobId }: { jobId: string }) {
       insightFetched.current = true;
       fetch(`/api/jobs/${jobId}/insight`)
         .then((r) => r.json())
-        .then((data) => setInsight(data.insight));
+        .then((data) => {
+          setInsight(data.insight);
+          setModules(data.modules ?? []);
+        });
     }
   }, [job?.status, jobId]);
 
@@ -243,14 +257,31 @@ export function JobDashboard({ jobId }: { jobId: string }) {
         <p className="text-muted-foreground">인사이트 불러오는 중...</p>
       ) : (
         <>
-          <section className="space-y-2 rounded-lg border border-border p-4">
-            <h3 className="font-semibold">IP 인텔리전스 리포트</h3>
-            <p className="text-xs text-muted-foreground">
-              대중 인식 구조·심리적 동인·포지셔닝 기회를 데이터 근거로 분석한 전략 리포트입니다.
-            </p>
-            <div className="ip-report">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{insight.summaryText}</ReactMarkdown>
+          <section className="space-y-4 rounded-lg border border-border p-4">
+            <div>
+              <h3 className="font-semibold">IP 인텔리전스 리포트</h3>
+              <p className="text-xs text-muted-foreground">
+                대중 인식 구조·심리적 동인·포지셔닝 기회를 데이터 근거(원본 영상·댓글)와 함께 분석한 전략 리포트입니다.
+              </p>
             </div>
+            {modules.some((m) => m.kind === "insights" && (m.insights?.length ?? 0) > 0) ? (
+              <div className="space-y-6">
+                {modules
+                  .filter((m) => m.kind === "insights" && (m.insights?.length ?? 0) > 0)
+                  .map((m) => (
+                    <div key={m.moduleKey} className="space-y-3">
+                      <h4 className="text-sm font-semibold text-muted-foreground">{m.title}</h4>
+                      {m.insights!.map((ins) => (
+                        <InsightCard key={ins.evidenceId} insight={ins} evidencePackage={ins.evidencePackage} />
+                      ))}
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <div className="ip-report">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{insight.summaryText}</ReactMarkdown>
+              </div>
+            )}
           </section>
 
           <section className="space-y-2 rounded-lg border border-border p-4">
