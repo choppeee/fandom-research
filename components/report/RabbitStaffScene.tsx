@@ -75,15 +75,15 @@ export function RabbitStaffScene({ milestones }: { milestones: Set<RoomMilestone
       </g>
 
       {/* Rabbit staff #1 - 화이트보드 앞, 팔 흔들며 패턴 붙이는 중 */}
-      <RabbitFigure x={330} y={230} scale={0.95} action="point" delay="0s" />
+      <RabbitFigure x={330} y={230} scale={0.95} action="point" delay="0s" wander="M0,0 L26,-8 L14,16 L-12,10 Z" wanderDur="9s" />
       {/* Rabbit staff #2 - 자료 옮기는 중 */}
-      <RabbitFigure x={600} y={300} scale={0.9} action="carry" delay="0.4s" />
+      <RabbitFigure x={600} y={300} scale={0.9} action="carry" delay="0.4s" wander="M0,0 L-22,6 L-6,-16 L20,-4 Z" wanderDur="11s" />
       {/* Rabbit staff #3 - 테이블에서 정리하는 중 */}
-      <RabbitFigure x={230} y={330} scale={0.85} action="sort" delay="0.2s" />
+      <RabbitFigure x={230} y={330} scale={0.85} action="sort" delay="0.2s" wander="M0,0 L16,13 L-16,19 L-10,-9 Z" wanderDur="10s" />
       {/* Rabbit staff #4 - 프로젝터 켜는 중 */}
-      <RabbitFigure x={470} y={210} scale={0.8} action="reach" delay="0.6s" />
+      <RabbitFigure x={470} y={210} scale={0.8} action="reach" delay="0.6s" wander="M0,0 L-19,-11 L11,-19 L19,9 Z" wanderDur="8s" />
       {/* Rabbit staff #5 - 커피 놓는 중 */}
-      <RabbitFigure x={140} y={370} scale={0.85} action="carry" delay="0.1s" />
+      <RabbitFigure x={140} y={370} scale={0.85} action="carry" delay="0.1s" wander="M0,0 L13,-16 L-16,-6 L6,16 Z" wanderDur="12s" />
 
       <style>{`
         .rs-fade { transition: opacity 0.6s ease; }
@@ -107,43 +107,49 @@ const ACTION_ARM: Record<string, string> = {
 
 /** 단순 실루엣 캐릭터 - 몸통(타원)+귀(타원 2개)+머리(원)+다리(선)+팔(동작별 선 하나)로만
  * 구성해, 손그림 일러스트를 흉내내지 않고 "일하는 자세의 실루엣"만 표현한다. */
-/** 위치(x,y)는 바깥 <g>의 SVG transform 속성으로만 고정하고, 움직임은 안쪽 <g>/<path>에
- * SMIL(animateTransform)로 준다 - CSS transform을 SVG 요소에 걸면 transform-box 해석이
- * 브라우저마다 달라 위치가 틀어지거나(특히 같은 이름의 @keyframes가 여러 인스턴스에서
- * 충돌해 전부 마지막 값으로 겹쳐버리는 문제가 실제로 발생했다), SMIL은 그 요소에만
- * 로컬로 적용돼 이런 충돌이 없다. */
+/** 위치(x,y)는 바깥 <g>의 SVG transform 속성으로 기준점을 고정하고, 그 기준점 주변을
+ * 배회하는 움직임은 안쪽 <g>에 SMIL <animateMotion>으로 준다. animateTransform/CSS
+ * transform 애니메이션은 예전에 같은 이름의 @keyframes가 여러 인스턴스에서 충돌하는
+ * 문제를 겪었던 자리라, 그거와 무관한 별개 SMIL 애니메이션(모션 경로)만 쓴다 - wander는
+ * 기준점(0,0)에서 시작해 다시 (0,0)으로 돌아오는 닫힌 경로라 위치가 어긋나지 않는다. */
 function RabbitFigure({
   x,
   y,
   scale = 1,
   action,
   delay = "0s",
+  wander,
+  wanderDur = "10s",
 }: {
   x: number;
   y: number;
   scale?: number;
   action: keyof typeof ACTION_ARM;
   delay?: string;
+  wander: string;
+  wanderDur?: string;
 }) {
   return (
     <g transform={`translate(${x} ${y}) scale(${scale})`}>
-      {/* 다리 */}
-      <line x1="-6" y1="18" x2="-8" y2="34" stroke="#c9cbd1" strokeWidth="4" strokeLinecap="round" />
-      <line x1="6" y1="18" x2="8" y2="34" stroke="#c9cbd1" strokeWidth="4" strokeLinecap="round" />
-      {/* 몸통 */}
-      <ellipse cx="0" cy="6" rx="14" ry="18" fill="#e7e8ec" stroke="#9a9ca3" strokeWidth="1.5" />
-      {/* 조끼 포인트 */}
-      <rect x="-8" y="0" width="16" height="12" rx="2" fill="#E3262E" opacity="0.85" />
-      {/* 팔 (동작별) */}
-      <path d={ACTION_ARM[action]} stroke="#e7e8ec" strokeWidth="4" strokeLinecap="round" fill="none" />
-      {/* 머리 */}
-      <circle cx="0" cy="-16" r="11" fill="#f2f3f6" stroke="#9a9ca3" strokeWidth="1.5" />
-      {/* 귀 */}
-      <ellipse cx="-6" cy="-30" rx="3.5" ry="12" fill="#f2f3f6" stroke="#9a9ca3" strokeWidth="1.2" transform="rotate(-10 -6 -30)" />
-      <ellipse cx="6" cy="-30" rx="3.5" ry="12" fill="#f2f3f6" stroke="#9a9ca3" strokeWidth="1.2" transform="rotate(10 6 -30)" />
-      {/* 작업 표시 - transform 대신 opacity만 깜빡여 "지금 일하는 중"을 표시(이 방식만 여러
-          인스턴스에서 안전하게 동작함을 확인했다 - 화이트보드/테이블 포인트와 동일 기법). */}
-      <circle cx="16" cy="-24" r="3" fill="#E3262E" className="rs-blink" style={{ animationDelay: delay }} />
+      <g>
+        <animateMotion path={wander} dur={wanderDur} begin={delay} repeatCount="indefinite" rotate="0" />
+        {/* 다리 */}
+        <line x1="-6" y1="18" x2="-8" y2="34" stroke="#c9cbd1" strokeWidth="4" strokeLinecap="round" />
+        <line x1="6" y1="18" x2="8" y2="34" stroke="#c9cbd1" strokeWidth="4" strokeLinecap="round" />
+        {/* 몸통 */}
+        <ellipse cx="0" cy="6" rx="14" ry="18" fill="#e7e8ec" stroke="#9a9ca3" strokeWidth="1.5" />
+        {/* 조끼 포인트 */}
+        <rect x="-8" y="0" width="16" height="12" rx="2" fill="#E3262E" opacity="0.85" />
+        {/* 팔 (동작별) */}
+        <path d={ACTION_ARM[action]} stroke="#e7e8ec" strokeWidth="4" strokeLinecap="round" fill="none" />
+        {/* 머리 */}
+        <circle cx="0" cy="-16" r="11" fill="#f2f3f6" stroke="#9a9ca3" strokeWidth="1.5" />
+        {/* 귀 */}
+        <ellipse cx="-6" cy="-30" rx="3.5" ry="12" fill="#f2f3f6" stroke="#9a9ca3" strokeWidth="1.2" transform="rotate(-10 -6 -30)" />
+        <ellipse cx="6" cy="-30" rx="3.5" ry="12" fill="#f2f3f6" stroke="#9a9ca3" strokeWidth="1.2" transform="rotate(10 6 -30)" />
+        {/* 작업 표시 - "지금 일하는 중"을 나타내는 깜빡이는 점 */}
+        <circle cx="16" cy="-24" r="3" fill="#E3262E" className="rs-blink" style={{ animationDelay: delay }} />
+      </g>
     </g>
   );
 }
