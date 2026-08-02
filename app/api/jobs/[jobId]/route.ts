@@ -31,15 +31,14 @@ export async function GET(
   }
 
   const admin = createAdminClient();
-  const { count: videoCount } = await admin
-    .from("youtube_videos")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", jobId);
-
-  const { count: commentCount } = await admin
-    .from("youtube_comments")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", jobId);
+  const [{ count: videoCount }, { count: commentCount }, { count: patternCount }, { data: likeRows }] = await Promise.all([
+    admin.from("youtube_videos").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+    admin.from("youtube_comments").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+    // 진행 화면의 "패턴 발견" 수 - 지금까지 저장된 분석 모듈 개수를 그대로 쓴다(가짜 수치 아님).
+    admin.from("job_analysis_modules").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+    admin.from("youtube_comments").select("like_count").eq("job_id", jobId),
+  ]);
+  const totalLikes = (likeRows ?? []).reduce((sum, r) => sum + ((r.like_count as number) ?? 0), 0);
 
   return NextResponse.json({
     jobId: job.id,
@@ -51,7 +50,10 @@ export async function GET(
     errorMessage: job.error_message,
     maxVideos: job.max_videos,
     maxCommentsPerVideo: job.max_comments_per_video,
+    createdAt: job.created_at,
     videoCount: videoCount ?? 0,
     commentCount: commentCount ?? 0,
+    patternCount: patternCount ?? 0,
+    totalLikes,
   });
 }

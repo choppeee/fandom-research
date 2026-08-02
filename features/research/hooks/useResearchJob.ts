@@ -11,8 +11,11 @@ export type JobStatus = {
   status: string;
   progress: number;
   errorMessage: string | null;
+  createdAt: string;
   videoCount: number;
   commentCount: number;
+  patternCount: number;
+  totalLikes: number;
 };
 
 /** job 상태 폴링 + 파이프라인 구동 루프(4-worker) + 완료 시 ReportModel 로드를 한 곳에 모은다.
