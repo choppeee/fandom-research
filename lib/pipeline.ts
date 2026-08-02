@@ -58,19 +58,22 @@ import type { SourceType } from "./social/types";
 // 파이프라인 단계 정의
 // ---------------------------------------------------------------------------
 
+// "platform"과 "reference"는 별도 phase가 아니라 "modules" phase에 함께 enqueue한다 -
+// 둘 다 modules(8개 분석 모듈)의 결과물을 필요로 하지 않고 aggregate/context 결과만 있으면
+// 되므로, 굳이 모듈들이 다 끝날 때까지 순서를 막아둘 이유가 없다. 같은 phase 안에서 4개
+// 워커가 병렬로 나눠 가져가면서 처리하므로 이전에 "modules 끝 -> platform 시작 -> platform 끝
+// -> ... -> reference 시작"으로 순차 대기하던 시간이 그만큼 줄어든다(체감 속도 개선).
 const PHASE_ORDER = [
   "collect",
   "classify",
   "aggregate",
   "context",
   "modules",
-  "platform",
   "cross",
   "positioning",
   "strategy_actions",
   "editorial",
   "coverage",
-  "reference",
   "executive_summary",
   "visual_data",
   "assemble",
@@ -84,13 +87,11 @@ const PHASE_START_PROGRESS: Record<Phase, number> = {
   aggregate: 42,
   context: 45,
   modules: 48,
-  platform: 72,
   cross: 78,
   positioning: 81,
   strategy_actions: 84,
   editorial: 88,
   coverage: 90,
-  reference: 91,
   executive_summary: 94,
   visual_data: 97,
   assemble: 98,
@@ -309,35 +310,31 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
       await enqueueTasks(admin, job.id, [{ type: "classify_ip", payload: { phase: "context" } }]);
       return;
 
-    case "modules":
-      await enqueueTasks(
-        admin,
-        job.id,
-        MODULE_DEFINITIONS.map((def) => ({
-          type: `module_${def.key}`,
-          payload: { phase: "modules", moduleKey: def.key },
-        }))
-      );
-      return;
+    case "modules": {
+      // platform_youtube/platform_x/reference_search 모두 modules(8개 분석 모듈)의 결과가
+      // 필요 없고 aggregate/context 결과만 있으면 되므로, 예전처럼 modules가 다 끝나야 시작하게
+      // 막지 않고 같은 phase에 함께 넣어 4개 워커가 병렬로 처리하게 한다(체감 속도 개선).
+      const tasks: { type: string; payload: Record<string, unknown> }[] = MODULE_DEFINITIONS.map((def) => ({
+        type: `module_${def.key}`,
+        payload: { phase: "modules", moduleKey: def.key },
+      }));
+      tasks.push({ type: "reference_search", payload: { phase: "modules" } });
 
-    case "platform": {
       if (job.uses_common_schema) {
         // platform_youtube/platform_x는 "YouTube vs X" 프레이밍 전용 프롬프트라 다른 플랫폼에
-        // 그대로 쓰면 틀린 서술이 나온다 - 공통 스키마 job은 modules phase의 범용 모듈만 사용하고
-        // 이 phase는 건너뛴다(cross_platform도 yt/x 모듈이 없으므로 자연히 스킵됨).
-        await enqueueTasks(admin, job.id, [{ type: "noop", payload: { phase: "platform" } }]);
-        return;
+        // 그대로 쓰면 틀린 서술이 나온다 - 공통 스키마 job은 범용 모듈만 사용한다
+        // (cross_platform도 yt/x 모듈이 없으므로 자연히 스킵됨).
+      } else {
+        const { count: postCount } = await admin
+          .from("social_posts")
+          .select("id", { count: "exact", head: true })
+          .eq("job_id", job.id);
+        tasks.push({ type: "platform_youtube", payload: { phase: "modules", platform: "youtube" } });
+        if ((postCount ?? 0) > 0) {
+          tasks.push({ type: "platform_x", payload: { phase: "modules", platform: "x" } });
+        }
       }
-      const { count: postCount } = await admin
-        .from("social_posts")
-        .select("id", { count: "exact", head: true })
-        .eq("job_id", job.id);
-      const tasks: { type: string; payload: Record<string, unknown> }[] = [
-        { type: "platform_youtube", payload: { phase: "platform", platform: "youtube" } },
-      ];
-      if ((postCount ?? 0) > 0) {
-        tasks.push({ type: "platform_x", payload: { phase: "platform", platform: "x" } });
-      }
+
       await enqueueTasks(admin, job.id, tasks);
       return;
     }
@@ -373,10 +370,6 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
 
     case "coverage":
       await enqueueTasks(admin, job.id, [{ type: "coverage_audit", payload: { phase: "coverage" } }]);
-      return;
-
-    case "reference":
-      await enqueueTasks(admin, job.id, [{ type: "reference_search", payload: { phase: "reference" } }]);
       return;
 
     case "executive_summary":

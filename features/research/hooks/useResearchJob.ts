@@ -43,7 +43,9 @@ export function useResearchJob(jobId: string) {
   useEffect(() => {
     if (!isPipelineActive) return;
     let stopped = false;
-    const WORKER_COUNT = 4;
+    // 댓글이 수천 개면 classify_batch만 수십~백여 개가 생기는데, 워커 수가 곧 동시 처리량이라
+    // 늘릴수록 체감 속도가 빨라진다(claimNextTask가 원자적 CAS라 워커를 늘려도 중복 처리 없음).
+    const WORKER_COUNT = 6;
 
     async function worker() {
       while (!stopped) {
