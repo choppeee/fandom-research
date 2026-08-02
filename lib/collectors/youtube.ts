@@ -149,6 +149,61 @@ export async function getVideoComments(
   return comments.slice(0, maxComments);
 }
 
+export type NormalizedChannel = {
+  channelId: string;
+  title: string | null;
+  description: string | null;
+  customUrl: string | null;
+  subscriberCount: number;
+  videoCount: number;
+};
+
+/** @handle, /channel/UCxxxx, /c/이름, /user/이름 등 채널을 가리키는 값에서 channelId를 찾는다.
+ * @handle은 channels.list?forHandle=로, 나머지 레거시 형태는 각각의 파라미터로 조회한다. */
+export async function resolveChannel(handleOrId: { handle?: string; channelId?: string; legacyUsername?: string }): Promise<NormalizedChannel | null> {
+  const params: Record<string, string> = { part: "snippet,statistics" };
+  if (handleOrId.channelId) params.id = handleOrId.channelId;
+  else if (handleOrId.handle) params.forHandle = handleOrId.handle;
+  else if (handleOrId.legacyUsername) params.forUsername = handleOrId.legacyUsername;
+  else return null;
+
+  const data = await youtubeFetch("channels", params);
+  const item = data.items?.[0];
+  if (!item) return null;
+  return {
+    channelId: item.id,
+    title: item.snippet?.title ?? null,
+    description: item.snippet?.description ?? null,
+    customUrl: item.snippet?.customUrl ?? null,
+    subscriberCount: Number(item.statistics?.subscriberCount ?? 0),
+    videoCount: Number(item.statistics?.videoCount ?? 0),
+  };
+}
+
+/** 채널의 최근 업로드 영상 ID를 최신순으로 가져온다 (search.list, order=date). */
+export async function getChannelRecentVideoIds(channelId: string, maxVideos: number): Promise<string[]> {
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+
+  while (ids.length < maxVideos) {
+    const data = await youtubeFetch("search", {
+      part: "id",
+      channelId,
+      type: "video",
+      order: "date",
+      maxResults: String(Math.min(50, maxVideos - ids.length)),
+      ...(pageToken ? { pageToken } : {}),
+    });
+    for (const item of data.items ?? []) {
+      if (item.id?.videoId) ids.push(item.id.videoId);
+    }
+    pageToken = data.nextPageToken;
+    if (!pageToken || (data.items ?? []).length === 0) break;
+  }
+
+  return ids.slice(0, maxVideos);
+}
+
 export const youtubeCollector: PlatformCollector = {
   platform: "youtube",
   isConfigured() {

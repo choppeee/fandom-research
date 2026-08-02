@@ -6,7 +6,9 @@ export type CommentRow = {
   textOriginal: string;
   likeCount: number;
   publishedAt: string | null;
-  platform?: "youtube" | "x";
+  // "source"는 공통 스키마(YouTube/Instagram 외 확장 플랫폼, 업로드 데이터 등)로 수집된 행 -
+  // 특정 플랫폼 고유 서술(platform_youtube/platform_x 등)을 강제하지 않고 범용 모듈로만 분석한다.
+  platform?: "youtube" | "x" | "source";
   url?: string | null;
 };
 
@@ -157,7 +159,7 @@ export type CommentSampleItem = {
   purchaseIntent: boolean;
   riskFlag: CommentAnalysisResult["riskFlag"];
   fandomExpressions: string[];
-  platform: "youtube" | "x";
+  platform: "youtube" | "x" | "source";
 };
 
 /**

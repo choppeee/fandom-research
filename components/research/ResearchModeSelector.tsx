@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { SingleLinkForm } from "./SingleLinkForm";
+import { InstantIntelligencePanel } from "./InstantIntelligencePanel";
 import { BroadResearchForm } from "./BroadResearchForm";
 
 type Mode = "single_content" | "broad_research";
@@ -9,9 +9,9 @@ type Mode = "single_content" | "broad_research";
 const MODES: { mode: Mode; title: string; blurb: string; description: string }[] = [
   {
     mode: "single_content",
-    title: "단일 링크 분석",
-    blurb: "한 개 콘텐츠를 깊게 읽습니다.",
-    description: "특정 콘텐츠 한 편에서 사람들이 무엇에 반응했는지 깊게 읽습니다.",
+    title: "Instant Intelligence",
+    blurb: "링크 · 연결 계정 · 업로드 데이터로 바로 분석합니다.",
+    description: "링크를 붙여넣거나, 관리 중인 계정을 연결하거나, 보유한 데이터를 업로드해 바로 분석을 시작합니다.",
   },
   {
     mode: "broad_research",
@@ -52,7 +52,7 @@ export function ResearchModeSelector() {
       {mode ? (
         <div className="mx-auto max-w-lg">
           <p className="mb-5 text-sm text-ink-secondary">{MODES.find((m) => m.mode === mode)?.description}</p>
-          {mode === "single_content" ? <SingleLinkForm /> : <BroadResearchForm />}
+          {mode === "single_content" ? <InstantIntelligencePanel /> : <BroadResearchForm />}
         </div>
       ) : (
         <p className="text-center text-sm text-ink-muted">분석 범위를 먼저 선택하세요.</p>

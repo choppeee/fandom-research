@@ -151,7 +151,7 @@ function buildPrompt(def: ModuleDefinition, ctx: {
   keyword: string;
   periodStart: string;
   periodEnd: string;
-  platforms: ("youtube" | "x")[];
+  platforms: ("youtube" | "x" | "source")[];
   stats: Aggregates;
   sample: CommentSampleItem[];
   ipType: IpTypeInfo;
@@ -190,7 +190,7 @@ export async function runAnalysisModule(
     keyword: string;
     periodStart: string;
     periodEnd: string;
-    platforms: ("youtube" | "x")[];
+    platforms: ("youtube" | "x" | "source")[];
     stats: Aggregates;
     sample: CommentSampleItem[];
     ipType: IpTypeInfo;

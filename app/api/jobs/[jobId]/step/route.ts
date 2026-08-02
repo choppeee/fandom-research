@@ -17,6 +17,7 @@ type Job = {
   status: string;
   research_mode: string;
   source_id: string | null;
+  uses_common_schema: boolean;
 };
 
 /**
@@ -39,7 +40,9 @@ export async function POST(
 
   const { data: job } = await supabase
     .from("research_jobs")
-    .select("id, keyword, period_start, period_end, max_videos, max_comments_per_video, status, research_mode, source_id")
+    .select(
+      "id, keyword, period_start, period_end, max_videos, max_comments_per_video, status, research_mode, source_id, uses_common_schema"
+    )
     .eq("id", jobId)
     .eq("user_id", user.id)
     .maybeSingle<Job>();
@@ -52,7 +55,9 @@ export async function POST(
   }
 
   const admin = createAdminClient();
-  const result = await stepJob(admin, job);
+  // .eq("user_id", user.id) 필터를 이미 통과했으므로 job의 실제 소유자는 user.id와 같다 -
+  // 어댑터가 Instagram 연결 계정을 조회할 때(예: instagramAdapter.collect) 이 값을 그대로 쓴다.
+  const result = await stepJob(admin, { ...job, user_id: user.id });
 
   return NextResponse.json(result);
 }

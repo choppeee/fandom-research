@@ -51,6 +51,8 @@ import {
   getPhaseTaskCounts,
   type AnalysisTask,
 } from "./task-queue";
+import { sourceRegistry } from "./social/registry";
+import type { SourceType } from "./social/types";
 
 // ---------------------------------------------------------------------------
 // 파이프라인 단계 정의
@@ -104,6 +106,8 @@ type Job = {
   status: string;
   research_mode?: string;
   source_id?: string | null;
+  user_id?: string;
+  uses_common_schema?: boolean;
 };
 
 function isPhase(v: string): v is Phase {
@@ -117,6 +121,7 @@ function isPhase(v: string): v is Phase {
 // 그 외(모듈 하나, X 수집, 레퍼런스 검색, positioning 등)는 실패해도 해당 부분만 비운 채 계속 진행한다.
 const CRITICAL_TASK_TYPES = new Set([
   "collect_youtube",
+  "collect_source",
   "aggregate",
   "assemble",
   "editorial_pass",
@@ -236,6 +241,10 @@ async function updateIntraPhaseProgress(admin: SupabaseClient, jobId: string, ph
 async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
   switch (phase) {
     case "collect": {
+      if (job.uses_common_schema) {
+        await enqueueTasks(admin, job.id, [{ type: "collect_source", payload: { phase: "collect" } }]);
+        return;
+      }
       const tasks: { type: string; payload: Record<string, unknown> }[] = [
         { type: "collect_youtube", payload: { phase: "collect", platform: "youtube" } },
       ];
@@ -247,6 +256,21 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
     }
 
     case "classify": {
+      if (job.uses_common_schema) {
+        const { reactionRows } = await loadCommonSchemaRows(admin, job.id);
+        const reactionIds = reactionRows.map((r) => r.id as string);
+        const tasks: { type: string; payload: Record<string, unknown> }[] = [];
+        for (let i = 0; i < reactionIds.length; i += COMMENT_BATCH_SIZE) {
+          tasks.push({
+            type: "classify_batch",
+            payload: { phase: "classify", platform: "source", ids: reactionIds.slice(i, i + COMMENT_BATCH_SIZE) },
+          });
+        }
+        if (tasks.length === 0) tasks.push({ type: "noop", payload: { phase: "classify" } });
+        await enqueueTasks(admin, job.id, tasks);
+        return;
+      }
+
       const { data: comments } = await admin
         .from("youtube_comments")
         .select("comment_id")
@@ -297,6 +321,13 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
       return;
 
     case "platform": {
+      if (job.uses_common_schema) {
+        // platform_youtube/platform_x는 "YouTube vs X" 프레이밍 전용 프롬프트라 다른 플랫폼에
+        // 그대로 쓰면 틀린 서술이 나온다 - 공통 스키마 job은 modules phase의 범용 모듈만 사용하고
+        // 이 phase는 건너뛴다(cross_platform도 yt/x 모듈이 없으므로 자연히 스킵됨).
+        await enqueueTasks(admin, job.id, [{ type: "noop", payload: { phase: "platform" } }]);
+        return;
+      }
       const { count: postCount } = await admin
         .from("social_posts")
         .select("id", { count: "exact", head: true })
@@ -368,7 +399,55 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
 // 태스크 실행기
 // ---------------------------------------------------------------------------
 
-async function loadCombinedData(admin: SupabaseClient, jobId: string) {
+/** 공통 스키마(sources -> contents -> reactions) job의 raw row들을 job_id 기준으로 불러온다.
+ * PostgREST 중첩 필터 대신 3단계로 나눠 조회해 supabase-js 버전에 덜 민감하게 만든다. */
+async function loadCommonSchemaRows(admin: SupabaseClient, jobId: string) {
+  const { data: sourceRows } = await admin.from("sources").select("id").eq("job_id", jobId);
+  const sourceIds = (sourceRows ?? []).map((s) => s.id as string);
+  if (sourceIds.length === 0) {
+    return { sourceIds, contentRows: [] as Record<string, unknown>[], reactionRows: [] as Record<string, unknown>[] };
+  }
+
+  const { data: contentRows } = await admin.from("contents").select("*").in("source_id", sourceIds);
+  const contentIds = (contentRows ?? []).map((c) => c.id as string);
+  if (contentIds.length === 0) {
+    return { sourceIds, contentRows: (contentRows ?? []) as Record<string, unknown>[], reactionRows: [] as Record<string, unknown>[] };
+  }
+
+  const { data: reactionRows } = await admin.from("reactions").select("*").in("content_id", contentIds);
+  return {
+    sourceIds,
+    contentRows: (contentRows ?? []) as Record<string, unknown>[],
+    reactionRows: (reactionRows ?? []) as Record<string, unknown>[],
+  };
+}
+
+async function loadCombinedData(admin: SupabaseClient, jobId: string, usesCommonSchema?: boolean) {
+  if (usesCommonSchema) {
+    const { reactionRows } = await loadCommonSchemaRows(admin, jobId);
+    const rows: CommentRow[] = reactionRows.map((r) => ({
+      commentId: r.id as string,
+      videoId: r.content_id as string,
+      textOriginal: (r.text as string) ?? "",
+      likeCount: ((r.engagement as Record<string, number | null> | null)?.likeCount as number) ?? 0,
+      publishedAt: (r.published_at as string | null) ?? null,
+      platform: "source" as const,
+    }));
+    const analyses = reactionRows
+      .filter((r) => r.analyzed_at)
+      .map((r) => ({
+        commentId: r.id as string,
+        sentiment: r.sentiment,
+        purchaseIntent: r.purchase_intent,
+        adReaction: r.ad_reaction,
+        riskFlag: r.risk_flag,
+        extractedKeywords: r.extracted_keywords ?? [],
+        fandomExpressions: r.fandom_expressions ?? [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      })) as any[];
+    return { rows, analyses, hasX: false };
+  }
+
   const { data: comments } = await admin
     .from("youtube_comments")
     .select("comment_id, video_id, text_original, like_count, published_at")
@@ -427,7 +506,7 @@ async function getStoredStatsAndSample(
 ): Promise<{
   stats: Aggregates;
   sample: CommentSampleItem[];
-  platforms: ("youtube" | "x")[];
+  platforms: ("youtube" | "x" | "source")[];
   ipType: IpTypeInfo;
   reportMode: ReportMode;
   situation: SituationDiagnosis;
@@ -469,7 +548,13 @@ async function getStoredStatsAndSample(
   };
 }
 
-async function getContentCounts(admin: SupabaseClient, jobId: string) {
+async function getContentCounts(admin: SupabaseClient, jobId: string, usesCommonSchema?: boolean) {
+  if (usesCommonSchema) {
+    const { contentRows, reactionRows } = await loadCommonSchemaRows(admin, jobId);
+    // videoCount/postCount 자리는 이름은 legacy지만 콘텐츠 중심 값을 그대로 담는다
+    // (필드명 자체를 content 중심으로 바꾸는 건 Coverage Audit 일반화 작업(#91)에서 처리).
+    return { videoCount: contentRows.length, commentCount: reactionRows.length, postCount: 0 };
+  }
   const { count: videoCount } = await admin
     .from("youtube_videos")
     .select("id", { count: "exact", head: true })
@@ -622,10 +707,125 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       return;
     }
 
+    case "collect_source": {
+      const { data: sourceRows, error: sourceErr } = await admin.from("sources").select("*").eq("job_id", job.id);
+      if (sourceErr) throw new Error(`소스 조회 실패: ${sourceErr.message}`);
+      if (!sourceRows || sourceRows.length === 0) throw new Error("이 job에 연결된 source가 없습니다.");
+
+      for (const s of sourceRows) {
+        const adapter = sourceRegistry[s.source_type as SourceType];
+        if (!adapter) throw new Error(`지원하지 않는 source_type입니다: ${s.source_type}`);
+
+        const result = await adapter.collect({
+          sourceId: (s.external_id as string) ?? "",
+          userId: job.user_id ?? "",
+          jobId: job.id,
+          maxItems: job.max_comments_per_video || 100,
+          sourceMetadata: (s.metadata as Record<string, unknown>) ?? {},
+        });
+
+        // 재시도(태스크 실패 후 재큐잉) 시 중복 삽입을 막기 위해 이 source의 기존
+        // contents/reactions를 먼저 지우고 다시 채운다 - collect()는 매번 전체를 다시 반환한다.
+        const { data: existingContents } = await admin.from("contents").select("id").eq("source_id", s.id);
+        const existingContentIds = (existingContents ?? []).map((c) => c.id as string);
+        if (existingContentIds.length > 0) {
+          await admin.from("reactions").delete().in("content_id", existingContentIds);
+          await admin.from("contents").delete().eq("source_id", s.id);
+        }
+
+        const contentIdByExternalId = new Map<string, string>();
+        for (const c of result.contents) {
+          const { data: inserted, error } = await admin
+            .from("contents")
+            .insert({
+              source_id: s.id,
+              external_content_id: c.externalContentId,
+              content_type: c.contentType,
+              title: c.title,
+              text: c.text,
+              published_at: c.publishedAt,
+              metrics: c.metrics,
+              native_metadata: c.nativeMetadata ?? {},
+            })
+            .select("id, external_content_id")
+            .single();
+          if (error) throw new Error(`contents 저장 실패: ${error.message}`);
+          if (inserted?.external_content_id) contentIdByExternalId.set(inserted.external_content_id as string, inserted.id as string);
+        }
+        const firstContentId = [...contentIdByExternalId.values()][0] ?? null;
+
+        if (result.reactions.length > 0) {
+          const reactionRows = result.reactions
+            .map((r) => ({
+              content_id: (r.externalContentId && contentIdByExternalId.get(r.externalContentId)) || firstContentId,
+              reaction_type: r.reactionType,
+              text: r.text,
+              published_at: r.publishedAt,
+              engagement: r.engagement,
+              author_key: r.authorKey,
+              native_metadata: r.nativeMetadata ?? {},
+            }))
+            .filter((r) => r.content_id);
+          if (reactionRows.length > 0) {
+            const { error } = await admin.from("reactions").insert(reactionRows);
+            if (error) throw new Error(`reactions 저장 실패: ${error.message}`);
+          }
+        }
+
+        const { error: availErr } = await admin
+          .from("sources")
+          .update({
+            data_origin: result.dataOrigin,
+            availability: {
+              unavailableFields: result.unavailableFields,
+              limitationReasons: result.limitationReasons,
+              contentCount: result.contents.length,
+              reactionCount: result.reactions.length,
+            },
+          })
+          .eq("id", s.id);
+        if (availErr) console.error(`[collect_source] source availability 업데이트 실패: ${availErr.message}`);
+      }
+      return;
+    }
+
     case "classify_batch": {
-      const platform = payload.platform as "youtube" | "x";
+      const platform = payload.platform as "youtube" | "x" | "source";
       const ids = (payload.ids as string[]) ?? [];
       if (ids.length === 0) return;
+
+      if (platform === "source") {
+        const { data } = await admin.from("reactions").select("id, text").in("id", ids);
+        const items = (data ?? []).map((r) => ({ id: r.id as string, text: (r.text as string) ?? "" }));
+        if (items.length === 0) return;
+
+        const idSet = new Set(items.map((i) => i.id));
+        const results = (
+          await analyzeCommentBatch(
+            job.keyword,
+            items.map((i) => ({ commentId: i.id, text: i.text }))
+          )
+        ).filter((r) => idSet.has(r.commentId));
+        if (results.length === 0) return;
+
+        for (const r of results) {
+          const { error } = await admin
+            .from("reactions")
+            .update({
+              sentiment: r.sentiment,
+              purchase_intent: r.purchaseIntent,
+              ad_reaction: r.adReaction,
+              risk_flag: r.riskFlag,
+              extracted_keywords: r.extractedKeywords,
+              fandom_expressions: r.fandomExpressions,
+              analysis_raw_json: r,
+              analyzed_at: new Date().toISOString(),
+            })
+            .eq("id", r.commentId);
+          if (error) console.error(`[classify_batch] reactions 분석 저장 실패: ${error.message}`);
+        }
+        return;
+      }
 
       let items: { id: string; text: string }[] = [];
       if (platform === "youtube") {
@@ -689,7 +889,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
     }
 
     case "aggregate": {
-      const { rows, analyses } = await loadCombinedData(admin, job.id);
+      const { rows, analyses } = await loadCombinedData(admin, job.id, job.uses_common_schema);
       const stats = computeAggregates(rows, analyses);
       const sample = buildCommentSample(rows, analyses, 60);
 
@@ -717,7 +917,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
 
     case "classify_ip": {
       const { stats, sample } = await getStoredStatsAndSample(admin, job.id);
-      const { videoCount, commentCount, postCount } = await getContentCounts(admin, job.id);
+      const { videoCount, commentCount, postCount } = await getContentCounts(admin, job.id, job.uses_common_schema);
       const platformCount = postCount > 0 ? 2 : 1;
       const reportMode = computeReportMode({ commentCount, postCount, videoCount, platformCount });
       const ipType = await classifyIpType(job.keyword, sample);
@@ -917,10 +1117,25 @@ CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체�
   if (task.task_type === "coverage_audit") {
     const modules = await getAllModules(admin, job.id);
 
-    const [{ data: commentRows }, { data: videoRows }] = await Promise.all([
-      admin.from("youtube_comments").select("comment_id, video_id, text_original, author_key").eq("job_id", job.id),
-      admin.from("youtube_videos").select("video_id").eq("job_id", job.id),
-    ]);
+    let commentRows: { comment_id: string; video_id: string | null; text_original: string; author_key: string | null }[];
+    let videoRows: { video_id: string }[];
+    if (job.uses_common_schema) {
+      const { contentRows, reactionRows } = await loadCommonSchemaRows(admin, job.id);
+      videoRows = contentRows.map((c) => ({ video_id: c.id as string }));
+      commentRows = reactionRows.map((r) => ({
+        comment_id: r.id as string,
+        video_id: (r.content_id as string) ?? null,
+        text_original: (r.text as string) ?? "",
+        author_key: (r.author_key as string) ?? null,
+      }));
+    } else {
+      const [{ data: c }, { data: v }] = await Promise.all([
+        admin.from("youtube_comments").select("comment_id, video_id, text_original, author_key").eq("job_id", job.id),
+        admin.from("youtube_videos").select("video_id").eq("job_id", job.id),
+      ]);
+      commentRows = (c ?? []) as typeof commentRows;
+      videoRows = (v ?? []) as typeof videoRows;
+    }
 
     const allVideoIds = (videoRows ?? []).map((v) => v.video_id as string);
     const allCommentIds = (commentRows ?? []).map((c) => c.comment_id as string);
@@ -1226,18 +1441,39 @@ async function assembleReport(admin: SupabaseClient, job: Job) {
     .eq("job_id", job.id)
     .maybeSingle();
 
-  const { videoCount, commentCount, postCount } = await getContentCounts(admin, job.id);
+  const { videoCount, commentCount, postCount } = await getContentCounts(admin, job.id, job.uses_common_schema);
 
   const execModule = byKey.get("executive_summary");
   const summary = execModule
     ? renderStoredContentToMarkdown(execModule.title, execModule.content_md)
     : "## Executive Summary\n\n데이터 부족으로 생성되지 않았습니다.";
 
+  let dataScopeLine: string;
+  if (job.uses_common_schema) {
+    const { data: sourceRows } = await admin
+      .from("sources")
+      .select("platform, source_type, data_origin, availability")
+      .eq("job_id", job.id);
+    const dataOriginLabel: Record<string, string> = {
+      official_api: "공식 API",
+      connected_account: "연결된 계정",
+      public_snapshot: "공개 스냅샷",
+      user_upload: "사용자 업로드",
+      manual_entry: "직접 입력",
+    };
+    const originLines = (sourceRows ?? [])
+      .map((s) => `${s.platform}/${s.source_type} (${dataOriginLabel[s.data_origin as string] ?? s.data_origin})`)
+      .join(", ") || "알 수 없음";
+    dataScopeLine = `- 데이터 출처: ${originLines}\n- 콘텐츠 ${videoCount ?? 0}개, 반응(댓글/답글) ${commentCount ?? 0}건`;
+  } else {
+    dataScopeLine = `- YouTube: 영상 ${videoCount ?? 0}개, 댓글 ${commentCount ?? 0}건
+- X(Twitter): 게시물 ${postCount ?? 0}건${(postCount ?? 0) === 0 ? " (미연결 또는 검색 결과 없음)" : ""}`;
+  }
+
   const methodology = `## Methodology & Data Scope
 
 - 분석 기간: ${job.period_start} ~ ${job.period_end}
-- YouTube: 영상 ${videoCount ?? 0}개, 댓글 ${commentCount ?? 0}건
-- X(Twitter): 게시물 ${postCount ?? 0}건${(postCount ?? 0) === 0 ? " (미연결 또는 검색 결과 없음)" : ""}
+${dataScopeLine}
 - 각 항목의 감성/구매의향/위험신호는 댓글/게시물 단위로 1차 분류한 뒤, 좋아요 상위·감성별·위험군·팬덤표현 포함
   게시물을 우선 선별한 대표 샘플을 근거로 심층 분석했습니다.`;
 
