@@ -20,6 +20,9 @@ import {
   referencePage,
   backCoverPage,
   evidencePage,
+  header,
+  footer,
+  chapterBanner,
 } from "./pages";
 import type { PdfEvidencePackage } from "./evidence-types";
 import { barChartHorizontal, donutChart, areaTimelineChart, funnelChart, matrix2x2, bipolarAxisChart } from "./charts";
@@ -219,32 +222,33 @@ export function buildReportHtml(data: ReportData): string {
   // (LLM 모듈은 이번 데이터/IP에 적용 불가능할 경우 페이지 자체가 생략될 수 있어 배너 앵커로 쓰지 않는다).
   const chapter02: ChapterIntro = { num: "02", title: "AUDIENCE", keyQuestion: "누가, 왜 반응하는가?" };
 
+  const contentWidth = 794 - 76 * 2; // PAGE.width - margin*2, render.ts는 lib/pdf/tokens.ts의 PAGE를 직접 import 안 해서 상수로 계산
   const donutSvg = donutChart(
     [
       { label: "긍정", value: data.stats.sentimentRatio.positive, color: COLORS.positive },
       { label: "부정", value: data.stats.sentimentRatio.negative, color: COLORS.risk },
       { label: "중립", value: data.stats.sentimentRatio.neutral, color: COLORS.neutralChart },
     ],
-    { size: 170 }
+    { size: 140 }
   );
   const keywordSvg = barChartHorizontal(
     data.stats.topKeywords.slice(0, 8).map((k) => ({ label: k.keyword, value: k.count })),
-    { width: 440, color: accent }
+    { width: contentWidth - 140 - 20, color: accent }
   );
-  const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: 1080, height: 190, color: accent });
-  pages.push(`<section class="page" style="padding:56px;">
-    <div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:#686371;">02 Audience</span></div><span class="brand">AUDIENCE &amp; IP INTELLIGENCE</span></div>
-    <div style="margin-top:58px;margin-bottom:6px;display:flex;align-items:baseline;gap:14px;"><span style="font-size:13px;font-weight:700;color:${accent};letter-spacing:0.5px;">${chapter02.num} ${chapter02.title}</span><span style="font-size:11px;color:#8A8594;">${chapter02.keyQuestion}</span></div>
-    <h2 style="font-size:22px;margin-top:10px;margin-bottom:20px;">SENTIMENT &amp; TOPIC DISTRIBUTION</h2>
-    <div style="display:flex;gap:36px;align-items:flex-start;">
+  const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: contentWidth, height: 160, color: accent });
+  pages.push(`<section class="page">
+    ${header("02 Audience")}
+    ${chapterBanner({ ...chapter02, accent })}
+    <h2 style="font-size:19px;margin-top:10px;margin-bottom:16px;">감성·주제 분포</h2>
+    <div style="display:flex;gap:20px;align-items:flex-start;">
       <div>${donutSvg}</div>
       <div>${keywordSvg}</div>
     </div>
-    <div style="margin-top:18px;">
+    <div style="margin-top:16px;">
       <div style="font-size:10.5px;color:#686371;margin-bottom:8px;">언급량 · 참여량 추이</div>
       ${timelineSvg}
     </div>
-    <div class="footer"><span>${reportTitle}</span><span>${pageNum.n++}</span></div>
+    ${footer(reportTitle, pageNum.n++)}
   </section>`);
 
   pages.push(...modPages("audience_segments", "02 Audience"));
@@ -262,7 +266,7 @@ export function buildReportHtml(data: ReportData): string {
   if (data.visualData.perceptionMap.axes.length > 0) {
     const axisSvg = bipolarAxisChart(
       data.visualData.perceptionMap.axes.map((a) => ({ leftLabel: a.leftLabel, rightLabel: a.rightLabel, position: a.position })),
-      { width: 900, color: accent }
+      { width: contentWidth, color: accent }
     );
     pages.push(
       perceptionMapPage({
@@ -364,7 +368,7 @@ export function buildReportHtml(data: ReportData): string {
   }
 
   if (data.visualData.funnel.stages.length > 0) {
-    const funnelSvg = funnelChart(data.visualData.funnel.stages, { width: 1080, color: accent });
+    const funnelSvg = funnelChart(data.visualData.funnel.stages, { width: contentWidth, color: accent });
     pages.push(
       audienceFunnelPage({
         breadcrumb: "05 Opportunity",
@@ -470,7 +474,13 @@ export async function renderHtmlToPdf(html: string): Promise<Buffer> {
     // Puppeteer의 기본 30초 네비게이션 타임아웃은 서버리스 콜드 스타트 + 대용량 base64 폰트
     // 임베드 상황에서 부족할 수 있어, 라우트의 maxDuration(90s) 안에서 여유있게 늘린다.
     await page.setContent(html, { waitUntil: "networkidle0", timeout: 60_000 });
-    const buffer = await page.pdf({ width: "1280px", height: "720px", printBackground: true });
+    // A4 세로. .page 블록은 min-height만 갖고 자연스럽게 흐르므로(padding은 각 .page가 스스로
+    // 관리), 여기 margin은 0으로 둔다 - 이중 여백을 방지한다.
+    const buffer = await page.pdf({
+      format: "a4",
+      printBackground: true,
+      margin: { top: "0", bottom: "0", left: "0", right: "0" },
+    });
     return Buffer.from(buffer);
   } finally {
     await browser.close();

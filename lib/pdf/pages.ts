@@ -13,20 +13,34 @@ export function baseStyles(accent: string): string {
   return `
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: ${GRAY[100]}; }
-  body { font-family: 'NanumGothic', sans-serif; color: ${COLORS.text}; font-size: 13px; line-height: 1.6; }
-  .page { width: ${PAGE.width}px; height: ${PAGE.height}px; position: relative; background: ${COLORS.surface}; overflow: hidden; page-break-after: always; }
+  body {
+    font-family: 'Pretendard', 'NanumGothic', sans-serif;
+    color: ${COLORS.text}; font-size: 13px; line-height: 1.7; letter-spacing: -0.003em;
+    word-break: keep-all; overflow-wrap: break-word; line-break: strict; hyphens: none;
+  }
+  /* A4 세로. height는 최소값 - 본문이 길면 이 블록만 자연스럽게 다음 물리 페이지로
+     흘러넘치고, 다음 .page는 항상 새 페이지에서 시작한다(고정 캔버스에서 텍스트가
+     잘리던 문제의 근본 원인을 제거). */
+  .page {
+    width: ${PAGE.width}px; min-height: ${PAGE.height}px; position: relative;
+    background: ${COLORS.surface}; page-break-after: always;
+    display: flex; flex-direction: column;
+    padding: ${PAGE.margin}px ${PAGE.margin}px ${Math.round(PAGE.margin * 0.7)}px;
+  }
   .page:last-child { page-break-after: auto; }
+  .page-body { flex: 1 0 auto; }
   .accent { color: ${accent}; }
   .bg-accent { background: ${accent}; }
-  h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; }
-  p { margin: 0 0 8px; color: ${GRAY[700]}; }
+  h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; orphans: 3; widows: 3; }
+  p { margin: 0 0 8px; color: ${GRAY[700]}; orphans: 3; widows: 3; }
   ul { margin: 0 0 8px 18px; color: ${GRAY[700]}; }
   li { margin-bottom: 4px; }
   strong { color: ${COLORS.text}; font-weight: 700; }
-  .header { position: absolute; top: 30px; left: ${PAGE.margin}px; right: ${PAGE.margin}px; display: flex; justify-content: space-between; align-items: center; }
+  .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+  .header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
   .header .dash { width: 36px; height: 2px; background: ${GRAY[300]}; }
-  .header .brand { font-size: 11px; font-weight: 700; color: ${GRAY[500]}; letter-spacing: 0.4px; }
-  .footer { position: absolute; bottom: 22px; left: ${PAGE.margin}px; right: ${PAGE.margin}px; display: flex; justify-content: space-between; font-size: 9px; color: ${GRAY[400]}; }
+  .header .brand { font-size: 9.5px; font-weight: 700; color: ${GRAY[500]}; letter-spacing: 0.4px; }
+  .footer { margin-top: auto; padding-top: 14px; display: flex; justify-content: space-between; font-size: 9px; color: ${GRAY[400]}; flex-shrink: 0; }
   .chart-empty { color: ${GRAY[400]}; font-size: 11px; padding: 20px 0; }
   .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.3px; }
   .badge-risk { background: ${COLORS.riskTint}; color: ${COLORS.risk}; }
@@ -41,7 +55,7 @@ export function baseStyles(accent: string): string {
 }
 
 export function header(breadcrumb: string): string {
-  return `<div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:${GRAY[500]};">${esc(breadcrumb)}</span></div><span class="brand">AUDIENCE &amp; IP INTELLIGENCE</span></div>`;
+  return `<div class="header"><div style="display:flex;align-items:center;gap:12px;"><div class="dash"></div><span style="font-size:10.5px;color:${GRAY[500]};">${esc(breadcrumb)}</span></div><span class="brand">AUDIENCE &amp; IP INTELLIGENCE</span></div><div style="height:24px;flex-shrink:0;"></div>`;
 }
 
 export function footer(reportTitle: string, pageNum: number): string {
@@ -123,12 +137,12 @@ export function coverPage(params: {
   accent: string;
 }): string {
   const { keyword, periodStart, periodEnd, videoCount, commentCount, postCount, generatedAt, topKeywords, accent } = params;
-  const graphic = keywordConstellation(topKeywords, { width: 480, height: 480, accent });
-  return `<section class="page" style="display:flex;">
-    <div style="width:420px;background:${COLORS.panelTint};padding:56px 40px;display:flex;flex-direction:column;justify-content:center;border-right:1px solid ${COLORS.border};">
+  const graphic = keywordConstellation(topKeywords, { width: 480, height: 340, accent });
+  return `<section class="page" style="display:flex;flex-direction:column;padding:0;">
+    <div style="padding:48px ${PAGE.margin}px 32px;background:${COLORS.panelTint};border-bottom:1px solid ${COLORS.border};">
       <div class="dash" style="margin-bottom:20px;"></div>
       <div style="font-size:11px;color:${GRAY[500]};margin-bottom:10px;letter-spacing:0.3px;">Audience &amp; IP Intelligence Report</div>
-      <h1 style="font-size:32px;line-height:1.3;color:${COLORS.text};margin-bottom:24px;">${esc(keyword)}</h1>
+      <h1 style="font-size:34px;line-height:1.3;color:${COLORS.text};margin-bottom:20px;">${esc(keyword)}</h1>
       <div style="font-size:11px;color:${GRAY[600]};line-height:2;">
         <div>분석 기간 &nbsp;${esc(periodStart)} ~ ${esc(periodEnd)}</div>
         <div>데이터 &nbsp;영상 ${videoCount} · 댓글 ${commentCount}${postCount ? ` · X 게시물 ${postCount}` : ""}</div>
@@ -136,9 +150,9 @@ export function coverPage(params: {
         <div>생성일 &nbsp;${esc(generatedAt)}</div>
       </div>
     </div>
-    <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center;">
+    <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center;padding:20px;">
       ${graphic}
-      <div style="position:absolute;bottom:40px;left:40px;font-size:9.5px;color:${GRAY[400]};">실제 상위 언급 키워드 기반 그래픽</div>
+      <div style="position:absolute;bottom:24px;left:${PAGE.margin}px;font-size:9.5px;color:${GRAY[400]};">실제 상위 언급 키워드 기반 그래픽</div>
     </div>
   </section>`;
 }
@@ -164,16 +178,16 @@ export function kpiDashboardPage(params: {
     )
     .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:24px;margin-top:70px;margin-bottom:6px;">핵심 지표</h2>
-    <div style="font-size:12px;color:${GRAY[500]};margin-bottom:${params.disclaimer ? "16" : "32"}px;">이번 리서치에서 실제로 계산된 핵심 지표입니다.</div>
+    <h2 style="font-size:24px;margin-bottom:6px;">핵심 지표</h2>
+    <div style="font-size:12px;color:${GRAY[500]};margin-bottom:${params.disclaimer ? "16" : "24"}px;">이번 리서치에서 실제로 계산된 핵심 지표입니다.</div>
     ${
       params.disclaimer
         ? `<div style="background:${COLORS.warningTint};border-left:3px solid ${COLORS.warning};border-radius:6px;padding:10px 14px;margin-bottom:20px;font-size:11px;color:${GRAY[800]};">${esc(params.disclaimer)}</div>`
         : ""
     }
-    <div style="display:flex;flex-wrap:wrap;gap:16px;">${cards}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;">${cards}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -203,10 +217,10 @@ export function execSummaryCardsPage(params: {
     )
     .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:70px;margin-bottom:4px;">TOP 5 STRATEGIC FINDINGS</h2>
-    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:18px;">이 페이지만 읽어도 리포트 핵심을 파악할 수 있습니다.</div>
+    <h2 style="font-size:20px;margin-bottom:4px;">핵심 발견 Top 5</h2>
+    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">이 페이지만 읽어도 리포트 핵심을 파악할 수 있습니다.</div>
     <div>${cards}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -235,14 +249,14 @@ export function ipAtGlancePage(params: {
     )
     .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:70px;margin-bottom:18px;">IP AT A GLANCE</h2>
+    <h2 style="font-size:20px;margin-bottom:16px;">한눈에 보는 요약</h2>
     <div>${rows}</div>
     ${
       params.finalSentence
-        ? `<div style="position:absolute;left:${PAGE.margin}px;right:${PAGE.margin}px;bottom:70px;background:${params.accent}12;border-left:3px solid ${params.accent};border-radius:8px;padding:14px 20px;">
-            <div style="font-size:9px;font-weight:700;color:${params.accent};letter-spacing:0.5px;margin-bottom:4px;">FINAL STRATEGIC CONCLUSION</div>
+        ? `<div class="avoid-break" style="margin-top:20px;background:${params.accent}12;border-left:3px solid ${params.accent};border-radius:8px;padding:14px 20px;">
+            <div style="font-size:9px;font-weight:700;color:${params.accent};letter-spacing:0.5px;margin-bottom:4px;">최종 결론</div>
             <div style="font-size:14px;font-weight:700;color:${COLORS.text};">${esc(params.finalSentence)}</div>
           </div>`
         : ""
@@ -267,14 +281,13 @@ export function insightModulePage(params: {
   chartHtml?: string;
   accent: string;
 }): string {
-  const topOffset = params.chapterIntro ? 106 : 68;
   const bannerHtml = params.chapterIntro ? chapterBanner({ ...params.chapterIntro, accent: params.accent }) : "";
 
   if (!params.applicable || !params.primary) {
-    return `<section class="page" style="padding:${PAGE.margin}px;">
+    return `<section class="page">
       ${header(params.breadcrumb)}
       ${bannerHtml}
-      <div style="margin-top:${params.chapterIntro ? 8 : 40}px;">
+      <div style="margin-top:${params.chapterIntro ? 8 : 16}px;">
         <div style="font-size:11px;font-weight:700;color:${GRAY[500]};margin-bottom:10px;">${esc(params.moduleTitle)}</div>
         <div class="chart-empty">${esc(params.notApplicableReason || "이번 데이터/IP 유형에는 적용하기 어렵습니다.")}</div>
       </div>
@@ -300,40 +313,36 @@ export function insightModulePage(params: {
     )
     .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
     ${bannerHtml}
-    <div style="margin-top:${params.chapterIntro ? 10 : 40}px;">
+    <div style="margin-top:${params.chapterIntro ? 10 : 16}px;">
       <div style="font-size:10px;font-weight:700;color:${GRAY[500]};letter-spacing:0.5px;margin-bottom:8px;">${esc(params.moduleTitle.toUpperCase())}</div>
-      <h2 style="font-size:20px;line-height:1.4;margin-bottom:16px;max-width:1080px;">${esc(p.headline)}</h2>
-      <div style="display:flex;gap:28px;">
-        <div style="flex:1;max-width:${params.chartHtml ? "640" : "700"}px;font-size:12.5px;color:${GRAY[700]};line-height:1.65;">
-          ${esc(p.interpretation)}
+      <h2 style="font-size:19px;line-height:1.4;margin-bottom:14px;">${esc(p.headline)}</h2>
+      <div style="font-size:12.5px;color:${GRAY[700]};line-height:1.7;margin-bottom:16px;">
+        ${esc(p.interpretation)}
+      </div>
+      ${params.chartHtml ? `<div style="margin-bottom:16px;">${params.chartHtml}</div>` : ""}
+      <div class="avoid-break" style="background:${GRAY[50]};border-radius:8px;padding:14px 18px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:6px;flex-wrap:wrap;">
+          <span style="font-size:9px;font-weight:700;color:${GRAY[500]};letter-spacing:0.4px;">근거</span>
+          <div style="display:flex;gap:4px;">${confidenceBadge(p.confidence, params.accent)}${decisionBadge(p.decision, params.accent)}</div>
         </div>
-        <div style="width:${params.chartHtml ? "260" : "300"}px;flex-shrink:0;">
-          <div style="background:${GRAY[50]};border-radius:8px;padding:12px 16px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
-              <span style="font-size:9px;font-weight:700;color:${GRAY[500]};letter-spacing:0.4px;">근거</span>
-              <div style="display:flex;gap:4px;">${confidenceBadge(p.confidence, params.accent)}${decisionBadge(p.decision, params.accent)}</div>
-            </div>
-            ${evidenceItems}
-            <div style="font-size:9px;color:${GRAY[400]};margin-top:6px;">${esc(p.evidenceScope)}</div>
-            ${p.theory ? `<div style="font-size:9.5px;color:${GRAY[400]};margin-top:8px;">이론: ${esc(p.theory)}</div>` : ""}
-            ${bottleneckNote(p.possibleBottleneck)}
-            ${
-              p.relatedFindings && p.relatedFindings.length > 0
-                ? `<div style="font-size:9px;color:${GRAY[500]};margin-top:8px;border-top:1px solid ${GRAY[200]};padding-top:6px;"><strong>같은 근거의 다른 발견</strong><br/>${p.relatedFindings.map((f) => esc(f)).join("<br/>")}</div>`
-                : ""
-            }
-          </div>
-        </div>
-        ${params.chartHtml ? `<div style="flex-shrink:0;">${params.chartHtml}</div>` : ""}
+        ${evidenceItems}
+        <div style="font-size:9px;color:${GRAY[400]};margin-top:6px;">${esc(p.evidenceScope)}</div>
+        ${p.theory ? `<div style="font-size:9.5px;color:${GRAY[400]};margin-top:8px;">이론: ${esc(p.theory)}</div>` : ""}
+        ${bottleneckNote(p.possibleBottleneck)}
+        ${
+          p.relatedFindings && p.relatedFindings.length > 0
+            ? `<div style="font-size:9px;color:${GRAY[500]};margin-top:8px;border-top:1px solid ${GRAY[200]};padding-top:6px;"><strong>같은 근거의 다른 발견</strong><br/>${p.relatedFindings.map((f) => esc(f)).join("<br/>")}</div>`
+            : ""
+        }
       </div>
       ${secondaryHtml ? `<div style="margin-top:6px;">${secondaryHtml}</div>` : ""}
-    </div>
-    <div style="position:absolute;left:${PAGE.margin}px;right:${PAGE.margin}px;bottom:56px;background:${params.accent}0F;border-left:3px solid ${params.accent};border-radius:8px;padding:11px 18px;">
-      <div style="font-size:9px;font-weight:700;color:${params.accent};letter-spacing:0.4px;margin-bottom:3px;">지금 필요한 판단</div>
-      <div style="font-size:11.5px;color:${GRAY[800]};">${esc(p.whyItMatters)} ${esc(p.strategicImplication)}</div>
+      <div class="avoid-break" style="margin-top:16px;background:${params.accent}0F;border-left:3px solid ${params.accent};border-radius:8px;padding:11px 18px;">
+        <div style="font-size:9px;font-weight:700;color:${params.accent};letter-spacing:0.4px;margin-bottom:3px;">지금 필요한 판단</div>
+        <div style="font-size:11.5px;color:${GRAY[800]};">${esc(p.whyItMatters)} ${esc(p.strategicImplication)}</div>
+      </div>
     </div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -372,22 +381,21 @@ export function evidencePage(params: {
   const { pkg, accent } = params;
   const heroVideo = pkg.supportingVideos[0];
 
+  const videoWidth = PAGE.width - PAGE.margin * 2;
+  const videoHeight = Math.round((videoWidth * 9) / 16);
   const videoCardHtml = heroVideo
-    ? `<div style="display:flex;gap:20px;">
-        <div style="width:340px;flex-shrink:0;">
-          <div style="width:340px;height:191px;border-radius:10px;overflow:hidden;background:${GRAY[900]};position:relative;">
-            ${
-              heroVideo.thumbnailDataUri
-                ? `<img src="${heroVideo.thumbnailDataUri}" width="340" height="191" style="object-fit:cover;display:block;" />`
-                : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:${GRAY[400]};font-size:10.5px;">썸네일을 불러오지 못함</div>`
-            }
-          </div>
-          <div style="margin-top:8px;font-size:12px;font-weight:700;color:${COLORS.text};line-height:1.4;">${esc(heroVideo.title || "제목 없음")}</div>
-          <div style="font-size:10px;color:${GRAY[500]};margin-top:2px;">${esc(heroVideo.channelTitle)}${heroVideo.publishedAt ? ` · ${esc(heroVideo.publishedAt.slice(0, 10))}` : ""}</div>
-          <div style="font-size:9.5px;color:${GRAY[500]};margin-top:4px;">이 근거로 쓰인 댓글 ${heroVideo.commentCount}건</div>
-          ${pdfQrBlock(pkg.qrDataUri, pkg.qrTargetLabel)}
+    ? `<div class="avoid-break">
+        <div style="width:${videoWidth}px;height:${videoHeight}px;border-radius:10px;overflow:hidden;background:${GRAY[900]};position:relative;">
+          ${
+            heroVideo.thumbnailDataUri
+              ? `<img src="${heroVideo.thumbnailDataUri}" width="${videoWidth}" height="${videoHeight}" style="object-fit:cover;display:block;" />`
+              : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:${GRAY[400]};font-size:10.5px;">썸네일을 불러오지 못함</div>`
+          }
         </div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+        <div style="margin-top:8px;font-size:12px;font-weight:700;color:${COLORS.text};line-height:1.4;">${esc(heroVideo.title || "제목 없음")}</div>
+        <div style="font-size:10px;color:${GRAY[500]};margin-top:2px;">${esc(heroVideo.channelTitle)}${heroVideo.publishedAt ? ` · ${esc(heroVideo.publishedAt.slice(0, 10))}` : ""} · 이 근거로 쓰인 댓글 ${heroVideo.commentCount}건</div>
+        ${pdfQrBlock(pkg.qrDataUri, pkg.qrTargetLabel)}
+        <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           ${heroVideo.representativeComments.map((c) => pdfCommentQuote(c)).join("")}
         </div>
       </div>`
@@ -402,11 +410,11 @@ export function evidencePage(params: {
 
   const secondaryVideosHtml =
     pkg.supportingVideos.length > 1
-      ? `<div style="margin-top:16px;display:flex;gap:12px;">
+      ? `<div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
           ${pkg.supportingVideos
             .slice(1, 3)
             .map(
-              (v) => `<div style="flex:1;display:flex;gap:8px;align-items:center;background:${GRAY[50]};border-radius:8px;padding:8px;">
+              (v) => `<div style="display:flex;gap:8px;align-items:center;background:${GRAY[50]};border-radius:8px;padding:8px;">
                 <div style="width:72px;height:40px;flex-shrink:0;border-radius:4px;overflow:hidden;background:${GRAY[300]};">
                   ${v.thumbnailDataUri ? `<img src="${v.thumbnailDataUri}" width="72" height="40" style="object-fit:cover;" />` : ""}
                 </div>
@@ -417,11 +425,11 @@ export function evidencePage(params: {
         </div>`
       : "";
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <div style="margin-top:40px;">
+    <div>
       <div style="font-size:9px;font-weight:700;color:${accent};letter-spacing:0.5px;margin-bottom:6px;">영상·댓글 근거</div>
-      <h3 style="font-size:16px;color:${COLORS.text};margin-bottom:20px;max-width:1000px;line-height:1.4;">${esc(params.insightHeadline)}</h3>
+      <h3 style="font-size:15px;color:${COLORS.text};margin-bottom:14px;line-height:1.4;">${esc(params.insightHeadline)}</h3>
       ${videoCardHtml}
       ${collageHtml}
       ${secondaryVideosHtml}
@@ -445,31 +453,29 @@ export function diagnosticDashboardPage(params: {
   risks: { label: string; evidence: string }[];
   accent: string;
 }): string {
-  const col = (title: string, items: { label: string; evidence: string }[], color: string) => `
-    <div style="flex:1;">
+  const col = (title: string, items: { label: string; evidence: string }[], color: string) =>
+    items.length === 0
+      ? ""
+      : `<div>
       <div style="font-size:11px;font-weight:700;color:${color};letter-spacing:0.4px;margin-bottom:10px;">${title}</div>
-      ${
-        items.length === 0
-          ? `<div class="chart-empty">데이터 부족</div>`
-          : items
-              .slice(0, 3)
-              .map(
-                (it) => `<div style="background:${GRAY[50]};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
-                <div style="font-size:11.5px;font-weight:700;color:${COLORS.text};margin-bottom:3px;">${esc(it.label)}</div>
-                <div style="font-size:9.5px;color:${GRAY[500]};">${esc(it.evidence)}</div>
-              </div>`
-              )
-              .join("")
-      }
+      ${items
+        .slice(0, 3)
+        .map(
+          (it) => `<div style="background:${GRAY[50]};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+        <div style="font-size:11.5px;font-weight:700;color:${COLORS.text};margin-bottom:3px;">${esc(it.label)}</div>
+        <div style="font-size:9.5px;color:${GRAY[500]};">${esc(it.evidence)}</div>
+      </div>`
+        )
+        .join("")}
     </div>`;
 
   const bannerHtml = params.chapterIntro ? chapterBanner({ ...params.chapterIntro, accent: params.accent }) : "";
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
     ${bannerHtml}
-    <h2 style="font-size:22px;margin-top:${params.chapterIntro ? 10 : 64}px;margin-bottom:20px;">강점·위험 진단</h2>
-    <div style="display:flex;gap:20px;">
+    <h2 style="font-size:20px;margin-top:${params.chapterIntro ? 10 : 0}px;margin-bottom:16px;">강점·위험 진단</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       ${col("확고한 강점", params.strong, COLORS.positive)}
       ${col("숨은 자산", params.hidden, params.accent)}
       ${col("약한 신호", params.weak, COLORS.warning)}
@@ -500,10 +506,10 @@ export function audienceFunnelPage(params: {
     )
     .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:24px;">AUDIENCE FUNNEL</h2>
-    <div style="margin-bottom:28px;">${params.funnelSvg}</div>
+    <h2 style="font-size:20px;margin-bottom:16px;">관심에서 행동까지</h2>
+    <div style="margin-bottom:20px;">${params.funnelSvg}</div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;">${details}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -521,17 +527,17 @@ export function characterArchitecturePage(params: {
   accent: string;
 }): string {
   if (params.layers.length === 0) {
-    return `<section class="page" style="padding:${PAGE.margin}px;">
+    return `<section class="page">
       ${header(params.breadcrumb)}
-      <h2 style="font-size:22px;margin-top:64px;margin-bottom:20px;">CHARACTER ARCHITECTURE</h2>
+      <h2 style="font-size:20px;margin-bottom:16px;">캐릭터 구조</h2>
       <div class="chart-empty">이 ${esc(params.ipLabel)}은(는) 캐릭터 구조 분석에 필요한 데이터 근거가 부족합니다.</div>
       ${footer(params.reportTitle, params.pageNum)}
     </section>`;
   }
   const rows = params.layers
     .map(
-      (l, i) => `<div style="display:flex;gap:20px;margin-bottom:14px;">
-      <div style="width:120px;flex-shrink:0;">
+      (l, i) => `<div class="avoid-break" style="display:flex;gap:16px;margin-bottom:14px;">
+      <div style="width:100px;flex-shrink:0;">
         <div style="font-size:10px;font-weight:700;color:${params.accent};">${esc(l.layer)}</div>
         <div style="width:2px;height:${i < params.layers.length - 1 ? "34" : "0"}px;background:${GRAY[200]};margin:8px auto 0;"></div>
       </div>
@@ -543,10 +549,10 @@ export function characterArchitecturePage(params: {
     )
     .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:4px;">CHARACTER ARCHITECTURE</h2>
-    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:20px;">${esc(params.ipLabel)}의 캐릭터를 4개 레이어로 분해</div>
+    <h2 style="font-size:20px;margin-bottom:4px;">캐릭터 구조</h2>
+    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">${esc(params.ipLabel)}의 캐릭터를 4개 레이어로 분해</div>
     <div>${rows}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -573,14 +579,12 @@ export function opportunityMatrixPage(params: {
     )
     .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:6px;">OPPORTUNITY MATRIX</h2>
-    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">X축: 대중 확장 잠재력 · Y축: 근거 강도 (번호는 오른쪽 목록과 매칭)</div>
-    <div style="display:flex;gap:28px;">
-      <div>${params.matrixSvg}</div>
-      <div style="flex:1;padding-top:8px;">${list || `<div class="chart-empty">데이터 부족</div>`}</div>
-    </div>
+    <h2 style="font-size:20px;margin-bottom:6px;">기회 매트릭스</h2>
+    <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">X축: 대중 확장 잠재력 · Y축: 근거 강도 (번호는 아래 목록과 매칭)</div>
+    <div class="avoid-break" style="display:flex;justify-content:center;margin-bottom:16px;">${params.matrixSvg}</div>
+    <div>${list || `<div class="chart-empty">데이터 부족</div>`}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -597,11 +601,11 @@ export function perceptionMapPage(params: {
   accent: string;
 }): string {
   const bannerHtml = params.chapterIntro ? chapterBanner({ ...params.chapterIntro, accent: params.accent }) : "";
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
     ${bannerHtml}
-    <h2 style="font-size:22px;margin-top:${params.chapterIntro ? 10 : 64}px;margin-bottom:24px;">PERCEPTION MAP</h2>
-    <div>${params.axisSvg}</div>
+    <h2 style="font-size:20px;margin-top:${params.chapterIntro ? 10 : 0}px;margin-bottom:16px;">인식 지도</h2>
+    <div style="display:flex;justify-content:center;">${params.axisSvg}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -618,32 +622,30 @@ export function opportunityMapPage(params: {
   create: { label: string; evidence: string }[];
   accent: string;
 }): string {
-  const col = (title: string, items: { label: string; evidence: string }[], color: string) => `
-    <div style="flex:1;">
-      <div style="text-align:center;font-size:11px;font-weight:700;color:white;background:${color};border-radius:6px;padding:6px;margin-bottom:12px;letter-spacing:0.5px;">${title}</div>
-      ${
-        items.length === 0
-          ? `<div class="chart-empty">데이터 부족</div>`
-          : items
-              .slice(0, 3)
-              .map(
-                (it) => `<div style="border:1px solid ${GRAY[200]};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
-                <div style="font-size:11.5px;font-weight:700;margin-bottom:3px;">${esc(it.label)}</div>
-                <div style="font-size:9.5px;color:${GRAY[500]};">${esc(it.evidence)}</div>
-              </div>`
-              )
-              .join("")
-      }
+  const col = (title: string, items: { label: string; evidence: string }[], color: string) =>
+    items.length === 0
+      ? ""
+      : `<div class="avoid-break" style="margin-bottom:14px;">
+      <div style="display:inline-block;font-size:10.5px;font-weight:700;color:white;background:${color};border-radius:6px;padding:5px 12px;margin-bottom:10px;letter-spacing:0.5px;">${title}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        ${items
+          .slice(0, 3)
+          .map(
+            (it) => `<div style="border:1px solid ${GRAY[200]};border-radius:8px;padding:10px 12px;">
+              <div style="font-size:11px;font-weight:700;margin-bottom:3px;">${esc(it.label)}</div>
+              <div style="font-size:9px;color:${GRAY[500]};">${esc(it.evidence)}</div>
+            </div>`
+          )
+          .join("")}
+      </div>
     </div>`;
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:20px;">KEEP / DISCOVER / CREATE</h2>
-    <div style="display:flex;gap:18px;">
-      ${col("KEEP", params.keep, COLORS.positive)}
-      ${col("DISCOVER", params.discover, params.accent)}
-      ${col("CREATE", params.create, COLORS.warning)}
-    </div>
+    <h2 style="font-size:20px;margin-bottom:16px;">유지·발견·창조</h2>
+    ${col("유지 (KEEP)", params.keep, COLORS.positive)}
+    ${col("발견 (DISCOVER)", params.discover, params.accent)}
+    ${col("창조 (CREATE)", params.create, COLORS.warning)}
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -671,22 +673,22 @@ export function positioningPage(params: {
     )
     .join("");
 
-  const finalBox = (label: string, value: string, color: string) => `
-    <div style="flex:1;background:${color}12;border-radius:8px;padding:12px 14px;">
+  const finalBox = (label: string, value: string, color: string) =>
+    !value
+      ? ""
+      : `<div class="avoid-break" style="background:${color}12;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
       <div style="font-size:9px;font-weight:700;color:${color};letter-spacing:0.4px;margin-bottom:4px;">${label}</div>
       <div style="font-size:11px;color:${GRAY[800]};line-height:1.5;">${esc(value)}</div>
     </div>`;
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:4px;">POSITIONING OPTIONS</h2>
+    <h2 style="font-size:20px;margin-bottom:4px;">포지셔닝 후보</h2>
     <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">Positioning 후보와 최종 추천 포지션</div>
-    <div style="margin-bottom:18px;">${rows || `<div class="chart-empty">데이터 부족</div>`}</div>
-    <div style="display:flex;gap:14px;">
-      ${finalBox("CORE POSITION", params.core, params.accent)}
-      ${finalBox("SUPPORTING POSITION", params.supporting, GRAY[600])}
-      ${finalBox("EMERGING POSITION", params.emerging, COLORS.warning)}
-    </div>
+    <div style="margin-bottom:14px;">${rows || `<div class="chart-empty">데이터 부족</div>`}</div>
+    ${finalBox("핵심 포지션", params.core, params.accent)}
+    ${finalBox("보조 포지션", params.supporting, GRAY[600])}
+    ${finalBox("신흥 포지션", params.emerging, COLORS.warning)}
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -755,7 +757,7 @@ export function strategyPage(params: {
   const card = (r: (typeof params.recommendations)[number]) => {
     const tier = DECISION_TIER[r.decision] ?? "watch";
     return `
-    <div style="border:1px solid ${GRAY[200]};border-radius:8px;padding:11px 14px;margin-bottom:8px;">
+    <div class="avoid-break" style="border:1px solid ${GRAY[200]};border-radius:8px;padding:11px 14px;margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
         <span style="font-size:9px;font-weight:700;color:white;background:${tierColor(tier)};border-radius:4px;padding:2px 7px;letter-spacing:0.3px;">${esc(DECISION_LABEL[r.decision] ?? r.decision)}</span>
         ${confidenceBadge(r.confidence, params.accent)}
@@ -769,24 +771,26 @@ export function strategyPage(params: {
     </div>`;
   };
 
-  const cols = ["act", "test", "watch", "avoid"].map((tier) => {
-    const items = params.recommendations.filter((r) => (DECISION_TIER[r.decision] ?? "watch") === tier);
-    if (items.length === 0) return "";
-    return `<div style="flex:1;">
-      <div style="font-size:9px;font-weight:700;color:${tierColor(tier)};letter-spacing:0.4px;margin-bottom:8px;">${TIER_LABEL[tier]}</div>
+  const groups = ["act", "test", "watch", "avoid"]
+    .map((tier) => {
+      const items = params.recommendations.filter((r) => (DECISION_TIER[r.decision] ?? "watch") === tier);
+      if (items.length === 0) return "";
+      return `<div style="margin-bottom:12px;">
+      <div style="font-size:10px;font-weight:700;color:${tierColor(tier)};letter-spacing:0.4px;margin-bottom:8px;">${TIER_LABEL[tier]}</div>
       ${items.map(card).join("")}
     </div>`;
-  });
+    })
+    .join("");
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:4px;">그래서 지금 무엇을 어떻게 움직여야 하는가</h2>
+    <h2 style="font-size:19px;margin-bottom:4px;">그래서 지금 무엇을 어떻게 움직여야 하는가</h2>
     <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">실제 데이터에 맞는 판단만 선택했다 — 모든 리포트가 같은 조합을 갖지 않는다</div>
-    <div style="display:flex;gap:14px;">${cols.join("")}</div>
+    <div>${groups}</div>
     ${
       params.appendixIdeas.length > 0
-        ? `<div style="position:absolute;left:${PAGE.margin}px;right:${PAGE.margin}px;bottom:56px;">
-            <div style="font-size:9px;font-weight:700;color:${GRAY[500]};letter-spacing:0.4px;margin-bottom:4px;">그 외 아이디어 (Appendix)</div>
+        ? `<div style="margin-top:8px;">
+            <div style="font-size:9px;font-weight:700;color:${GRAY[500]};letter-spacing:0.4px;margin-bottom:4px;">그 외 아이디어</div>
             <div style="font-size:9.5px;color:${GRAY[500]};">${params.appendixIdeas.slice(0, 6).map(esc).join(" · ")}</div>
           </div>`
         : ""
@@ -831,10 +835,10 @@ export function referencePage(params: {
 
   const hasAny = params.academic.length + params.context.length > 0;
 
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:22px;margin-top:64px;margin-bottom:18px;">RESEARCH REFERENCES</h2>
-    ${hasAny ? `${section("ACADEMIC / RESEARCH", params.academic)}${section("CONTEXT SOURCES", params.context)}` : `<div class="chart-empty">검증된 외부 자료를 찾지 못했습니다</div>`}
+    <h2 style="font-size:20px;margin-bottom:16px;">참고 자료</h2>
+    ${hasAny ? `${section("학술·연구 자료", params.academic)}${section("맥락 자료", params.context)}` : `<div class="chart-empty">검증된 외부 자료를 찾지 못했습니다</div>`}
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -858,10 +862,10 @@ export function legacyTextPage(params: {
   pageNum: number;
   accent: string;
 }): string {
-  return `<section class="page" style="padding:${PAGE.margin}px;">
+  return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:19px;margin-top:64px;margin-bottom:16px;max-width:1080px;line-height:1.4;">${esc(params.headline)}</h2>
-    <div style="max-width:1080px;font-size:12px;">${params.bodyHtml}</div>
+    <h2 style="font-size:18px;margin-bottom:14px;line-height:1.4;">${esc(params.headline)}</h2>
+    <div style="font-size:12px;">${params.bodyHtml}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }

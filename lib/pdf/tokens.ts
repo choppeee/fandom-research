@@ -51,10 +51,14 @@ export const TYPE = {
   caption: "9.5px",
 } as const;
 
+// A4 세로, 96dpi 기준(210mm x 297mm ≈ 794 x 1123px). height는 "최소 높이"로만 쓰인다 -
+// 본문이 길면 그 .page 블록만 자연스럽게 다음 물리 페이지로 흘러넘치고(overflow), 다음
+// .page는 항상 새 페이지에서 시작한다(page-break-after:always). 고정 캔버스에 억지로
+// 맞추던 이전 방식과 달리 텍스트가 잘리지 않는다.
 export const PAGE = {
-  width: 1280,
-  height: 720,
-  margin: 56,
+  width: 794,
+  height: 1123,
+  margin: 76, // 약 20mm
 } as const;
 
 export const EVIDENCE_LABEL: Record<string, string> = {

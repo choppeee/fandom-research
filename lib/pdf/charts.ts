@@ -356,8 +356,14 @@ export function areaTimelineChart(
   const engagementPath = pathFor("engagement", maxEngagement);
   const areaPath = `${mentionsPath} L ${pad + plotW} ${pad + plotH} L ${pad} ${pad + plotH} Z`;
 
+  // 라벨 하나("MM-DD")가 대략 32px을 차지하므로, 폭이 좁을 때 전부 그리면 겹친다.
+  // 표시 가능한 개수만큼만 균등 간격으로 골라 그린다(마지막 포인트는 항상 포함).
+  const labelWidth = 32;
+  const maxLabels = Math.max(2, Math.floor(plotW / labelWidth));
+  const labelStep = Math.max(1, Math.ceil(points.length / maxLabels));
   const labels = points
     .map((p, i) => {
+      if (i % labelStep !== 0 && i !== points.length - 1) return "";
       const x = pad + i * stepX;
       return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle" font-size="9.5" fill="${GRAY[500]}">${esc(p.date.slice(5))}</text>`;
     })
