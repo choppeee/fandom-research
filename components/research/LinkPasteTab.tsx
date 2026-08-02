@@ -121,11 +121,14 @@ export function LinkPasteTab() {
             id="maxItems"
             type="number"
             min={10}
-            max={500}
+            max={5000}
             value={maxItems}
             onChange={(e) => setMaxItems(Number(e.target.value))}
             className="w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-brand sm:w-48"
           />
+          {maxItems > 1000 && (
+            <p className="text-xs text-ink-muted">댓글이 많을수록 분석 완료까지 오래 걸립니다(수천 개는 수십 분 소요될 수 있어요).</p>
+          )}
         </div>
       )}
 
