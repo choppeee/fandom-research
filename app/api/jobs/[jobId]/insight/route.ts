@@ -17,7 +17,7 @@ export async function GET(
 
   const { data: job } = await supabase
     .from("research_jobs")
-    .select("id, keyword, period_start, period_end, status")
+    .select("id, keyword, period_start, period_end, status, research_mode")
     .eq("id", jobId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -31,6 +31,7 @@ export async function GET(
     keyword: job.keyword,
     period_start: job.period_start,
     period_end: job.period_end,
+    research_mode: job.research_mode,
   });
 
   return NextResponse.json({ report });

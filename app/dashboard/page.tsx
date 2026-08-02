@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { NewResearchForm } from "@/components/NewResearchForm";
 import { ReportHeader } from "@/components/report/ReportHeader";
+import { ResearchModeSelector } from "@/components/research/ResearchModeSelector";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -15,18 +15,14 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-bg">
-      <ReportHeader active="dashboard" />
-      <main className="mx-auto flex max-w-md flex-col items-center gap-8 px-6 py-16">
-        <div className="w-full text-center">
-          <p className="text-xs text-ink-muted">{user.email}</p>
-        </div>
-
-        <section className="w-full space-y-1.5 text-center">
-          <h1 className="text-2xl font-bold text-ink">새 리서치 시작</h1>
-          <p className="text-sm text-ink-secondary">키워드와 분석 기간을 입력하면 유튜브 영상·댓글을 수집해 분석합니다.</p>
+      <ReportHeader active="dashboard" userEmail={user.email} />
+      <main className="mx-auto max-w-3xl px-6 py-16">
+        <section className="mb-10 text-center">
+          <p className="text-xs font-semibold tracking-wide text-ink-muted">NEW RESEARCH</p>
+          <h1 className="mt-2 text-2xl font-bold text-ink">무엇을 알고 싶은지에 따라 분석 방식을 선택하세요</h1>
         </section>
 
-        <NewResearchForm />
+        <ResearchModeSelector />
       </main>
     </div>
   );

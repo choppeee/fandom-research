@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCollector } from "./collectors";
-import type { NormalizedPost } from "./collectors/types";
+import { getVideoDetails, getVideoComments } from "./collectors/youtube";
+import type { NormalizedPost, CollectResult } from "./collectors/types";
 import { analyzeCommentBatch, COMMENT_BATCH_SIZE } from "./claude";
 import { computeAggregates, buildCommentSample, type CommentRow, type CommentSampleItem, type Aggregates } from "./aggregate";
 import { MODULE_DEFINITIONS, runAnalysisModule } from "./analysis-modules";
@@ -85,6 +86,8 @@ type Job = {
   max_videos: number;
   max_comments_per_video: number;
   status: string;
+  research_mode?: string;
+  source_id?: string | null;
 };
 
 function isPhase(v: string): v is Phase {
@@ -491,14 +494,22 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
 
   switch (task.task_type) {
     case "collect_youtube": {
-      const collector = getCollector("youtube");
-      const result = await collector.collect({
-        keyword: job.keyword,
-        periodStart: job.period_start,
-        periodEnd: job.period_end,
-        maxVideos: job.max_videos,
-        maxCommentsPerVideo: job.max_comments_per_video,
-      });
+      let result: CollectResult;
+      if (job.research_mode === "single_content" && job.source_id) {
+        // 단일 콘텐츠 모드: 키워드 검색을 건너뛰고 지정된 영상 하나만 직접 수집한다.
+        const videos = await getVideoDetails([job.source_id]);
+        const posts = await getVideoComments(job.source_id, job.max_comments_per_video);
+        result = { configured: true, posts, videos };
+      } else {
+        const collector = getCollector("youtube");
+        result = await collector.collect({
+          keyword: job.keyword,
+          periodStart: job.period_start,
+          periodEnd: job.period_end,
+          maxVideos: job.max_videos,
+          maxCommentsPerVideo: job.max_comments_per_video,
+        });
+      }
 
       if (result.videos?.length) {
         const { error } = await admin.from("youtube_videos").upsert(
@@ -676,7 +687,14 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       const platformCount = postCount > 0 ? 2 : 1;
       const reportMode = computeReportMode({ commentCount, postCount, videoCount, platformCount });
       const ipType = await classifyIpType(job.keyword, sample);
-      const situation = await runSituationDiagnosis({ keyword: job.keyword, ipType, reportMode, stats, sample });
+      const situation = await runSituationDiagnosis({
+        keyword: job.keyword,
+        ipType,
+        reportMode,
+        researchMode: job.research_mode,
+        stats,
+        sample,
+      });
 
       const { data: existing } = await admin.from("job_insights").select("raw_json").eq("job_id", job.id).maybeSingle();
       const raw = (existing?.raw_json ?? {}) as Record<string, unknown>;

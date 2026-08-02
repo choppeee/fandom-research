@@ -15,6 +15,8 @@ type Job = {
   max_videos: number;
   max_comments_per_video: number;
   status: string;
+  research_mode: string;
+  source_id: string | null;
 };
 
 /**
@@ -37,7 +39,7 @@ export async function POST(
 
   const { data: job } = await supabase
     .from("research_jobs")
-    .select("id, keyword, period_start, period_end, max_videos, max_comments_per_video, status")
+    .select("id, keyword, period_start, period_end, max_videos, max_comments_per_video, status, research_mode, source_id")
     .eq("id", jobId)
     .eq("user_id", user.id)
     .maybeSingle<Job>();

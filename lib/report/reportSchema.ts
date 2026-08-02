@@ -15,6 +15,7 @@ export type ReportMeta = {
   keyword: string;
   ipType: IpTypeInfo;
   reportMode: ReportMode;
+  researchMode: string; // "single_content" | "broad_research"
   periodStart: string;
   periodEnd: string;
   generatedAt: string | null;

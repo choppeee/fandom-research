@@ -589,6 +589,10 @@ export type SituationDiagnosis = {
   currentSituation: string; // 지금 이 IP가 어떤 상태에 있는지 자연어 설명 (미리 정해진 성장단계 모델에 끼워맞추지 않음)
   keyQuestions: string[]; // 이번 데이터에서 가장 중요한 질문 1~3개
   currentPriority: string; // 지금 가장 중요한 분석 목적
+  // research_mode(single_content/broad_research)에 따라 결정론적으로 채워지는 범위 제약 문구.
+  // LLM이 생성하지 않고 코드에서 고정 삽입한다 - 모델이 매번 다르게 지켜야 하는 규칙이 아니라
+  // 항상 보장돼야 하는 리포트 범위이기 때문. situationLine()을 통해 모든 후속 프롬프트에 전달된다.
+  scopeConstraint?: string;
 };
 
 export const SITUATION_DIAGNOSIS_SCHEMA = {

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { signOut } from "@/app/login/actions";
 
 /** 제품 전역 Header. 실제 존재하는 라우트만 메뉴로 노출한다(가짜 메뉴 금지). */
-export function ReportHeader({ active }: { active?: "dashboard" | "jobs" }) {
+export function ReportHeader({ active, userEmail }: { active?: "dashboard" | "jobs"; userEmail?: string }) {
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-line bg-surface/95 px-6 backdrop-blur">
       <div className="flex items-center gap-8">
@@ -26,11 +26,14 @@ export function ReportHeader({ active }: { active?: "dashboard" | "jobs" }) {
           </Link>
         </nav>
       </div>
-      <form action={signOut}>
-        <button type="submit" className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-soft">
-          로그아웃
-        </button>
-      </form>
+      <div className="flex items-center gap-3">
+        {userEmail && <span className="hidden text-xs text-ink-muted sm:inline">{userEmail}</span>}
+        <form action={signOut}>
+          <button type="submit" className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-soft">
+            로그아웃
+          </button>
+        </form>
+      </div>
     </header>
   );
 }

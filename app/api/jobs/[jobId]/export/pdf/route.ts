@@ -53,7 +53,7 @@ export async function GET(
 
   const { data: job } = await supabase
     .from("research_jobs")
-    .select("id, keyword, period_start, period_end")
+    .select("id, keyword, period_start, period_end, research_mode")
     .eq("id", jobId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -97,6 +97,7 @@ export async function GET(
     keyword: job.keyword,
     period_start: job.period_start,
     period_end: job.period_end,
+    research_mode: job.research_mode,
   });
 
   // dedupeByDominantEvidence가 같은 영상을 핵심 근거로 삼는 여러 모듈의 insight를 하나로
@@ -195,6 +196,7 @@ export async function GET(
       ? new Date(insight.generated_at).toLocaleDateString("ko-KR")
       : new Date().toLocaleDateString("ko-KR"),
     reportMode,
+    researchMode: job.research_mode ?? "broad_research",
     stats,
     modules,
     metrics: reportModel.metrics,

@@ -9,7 +9,7 @@ function isoDaysAgo(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
-export function NewResearchForm() {
+export function BroadResearchForm() {
   const router = useRouter();
   const [keyword, setKeyword] = useState("");
   const [periodStart, setPeriodStart] = useState(isoDaysAgo(30));
@@ -34,6 +34,7 @@ export function NewResearchForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          researchMode: "broad_research",
           keyword: keyword.trim(),
           periodStart,
           periodEnd,
@@ -47,6 +48,7 @@ export function NewResearchForm() {
         setPending(false);
         return;
       }
+      localStorage.setItem("lastResearchMode", "broad_research");
       router.push(`/jobs/${data.jobId}`);
     } catch {
       setError("네트워크 오류가 발생했습니다.");
@@ -55,23 +57,23 @@ export function NewResearchForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-md space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-1.5">
-        <label htmlFor="keyword" className="text-sm font-medium">
-          키워드
+        <label htmlFor="keyword" className="text-sm font-medium text-ink">
+          키워드 또는 채널
         </label>
         <input
           id="keyword"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           placeholder="예: 아이브"
-          className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+          className="w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-brand"
         />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <label htmlFor="periodStart" className="text-sm font-medium">
+          <label htmlFor="periodStart" className="text-sm font-medium text-ink">
             시작일
           </label>
           <input
@@ -80,11 +82,11 @@ export function NewResearchForm() {
             value={periodStart}
             max={periodEnd}
             onChange={(e) => setPeriodStart(e.target.value)}
-            className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
         <div className="space-y-1.5">
-          <label htmlFor="periodEnd" className="text-sm font-medium">
+          <label htmlFor="periodEnd" className="text-sm font-medium text-ink">
             종료일
           </label>
           <input
@@ -93,14 +95,14 @@ export function NewResearchForm() {
             value={periodEnd}
             min={periodStart}
             onChange={(e) => setPeriodEnd(e.target.value)}
-            className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <label htmlFor="maxVideos" className="text-sm font-medium">
+          <label htmlFor="maxVideos" className="text-sm font-medium text-ink">
             영상 수 상한
           </label>
           <input
@@ -110,11 +112,11 @@ export function NewResearchForm() {
             max={200}
             value={maxVideos}
             onChange={(e) => setMaxVideos(Number(e.target.value))}
-            className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
         <div className="space-y-1.5">
-          <label htmlFor="maxComments" className="text-sm font-medium">
+          <label htmlFor="maxComments" className="text-sm font-medium text-ink">
             영상당 댓글 수 상한
           </label>
           <input
@@ -124,16 +126,14 @@ export function NewResearchForm() {
             max={200}
             value={maxCommentsPerVideo}
             onChange={(e) => setMaxCommentsPerVideo(Number(e.target.value))}
-            className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        테스트 중에는 값을 작게 유지하는 것을 권장합니다 (유튜브 쿼터/Claude 비용 절약).
-      </p>
+      <p className="text-xs text-ink-muted">테스트 중에는 값을 작게 유지하는 것을 권장합니다 (유튜브 쿼터/Claude 비용 절약).</p>
 
       {error && (
-        <p className="text-sm text-red-600" role="alert">
+        <p className="text-sm text-danger" role="alert">
           {error}
         </p>
       )}
@@ -141,9 +141,9 @@ export function NewResearchForm() {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-md bg-primary py-2 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-60"
+        className="w-full rounded-md bg-brand py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
       >
-        {pending ? "생성 중..." : "분석 시작"}
+        {pending ? "생성 중..." : "IP 리서치 시작하기"}
       </button>
     </form>
   );

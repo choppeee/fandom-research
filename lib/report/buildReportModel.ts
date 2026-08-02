@@ -23,6 +23,7 @@ export type ReportModelInput = {
   keyword: string;
   periodStart: string;
   periodEnd: string;
+  researchMode?: string;
   insightRow: {
     top_keywords: { keyword: string; count: number }[] | null;
     sentiment_ratio: Aggregates["sentimentRatio"] | null;
@@ -128,6 +129,8 @@ export function buildReportModel(input: ReportModelInput): ReportModel {
   const ipType = raw?.ipType ?? FALLBACK_IP_TYPE;
   const reportMode = raw?.reportMode ?? "standard";
   const situation = raw?.situation ?? EMPTY_SITUATION_DIAGNOSIS;
+  const researchMode = input.researchMode ?? "broad_research";
+  const isSingleContent = researchMode === "single_content";
 
   const stats: Aggregates = {
     topKeywords: input.insightRow?.top_keywords ?? [],
@@ -176,6 +179,7 @@ export function buildReportModel(input: ReportModelInput): ReportModel {
       keyword: input.keyword,
       ipType,
       reportMode,
+      researchMode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
       generatedAt: input.insightRow?.generated_at ?? null,
@@ -209,7 +213,15 @@ export function buildReportModel(input: ReportModelInput): ReportModel {
     })),
     strategy,
     references: input.insightRow?.research_references ?? [],
-    limitations: reportMode === "exploratory" ? ["표본이 작아(Exploratory 모드) 진단·전략 결론이 후보 수준으로 절제되어 있습니다."] : [],
+    limitations: [
+      ...(isSingleContent
+        ? [
+            "REPORT SCOPE: Single Content Analysis",
+            "LIMITATION: 이 결과는 입력한 영상과 해당 댓글에 한정됩니다.",
+          ]
+        : []),
+      ...(reportMode === "exploratory" ? ["표본이 작아(Exploratory 모드) 진단·전략 결론이 후보 수준으로 절제되어 있습니다."] : []),
+    ],
     legacy,
   };
 }
@@ -217,7 +229,11 @@ export function buildReportModel(input: ReportModelInput): ReportModel {
 /** DB에서 필요한 모든 원본을 로드해 buildReportModel을 호출한다. 웹 /insight 라우트와 PDF
  * /export/pdf 라우트가 각자 쿼리하던 것을 여기 하나로 합쳐, 두 렌더러가 서로 다른 데이터를
  * 보는 일이 없게 한다. */
-export async function loadReportModel(admin: SupabaseClient, jobId: string, job: { keyword: string; period_start: string; period_end: string }) {
+export async function loadReportModel(
+  admin: SupabaseClient,
+  jobId: string,
+  job: { keyword: string; period_start: string; period_end: string; research_mode?: string }
+) {
   const [{ data: insightRow }, { data: moduleRows }, { count: videoCount }, { count: commentCount }, { count: postCount }, evidenceSource] =
     await Promise.all([
       admin
@@ -239,6 +255,7 @@ export async function loadReportModel(admin: SupabaseClient, jobId: string, job:
     keyword: job.keyword,
     periodStart: job.period_start,
     periodEnd: job.period_end,
+    researchMode: job.research_mode,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     insightRow: insightRow as any,
     moduleRows: moduleRows ?? [],

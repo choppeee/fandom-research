@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  /* 레거시 토큰 - 기존 AuthForm/NewResearchForm 등이 아직 참조한다. 점진적으로
+  /* 레거시 토큰 - AuthForm 등이 아직 참조한다. 점진적으로
      아래 semantic 토큰으로 옮기고 있으며, 당분간 브랜드 red 값으로 매핑해둔다. */
   --background: 60 9% 97%;
   --foreground: 0 0% 7%;

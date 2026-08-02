@@ -43,6 +43,7 @@ export function ReportPage({ jobId, report }: { jobId: string; report: ReportMod
         ) : (
           <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_260px]">
             <main className="min-w-0 space-y-10">
+              <LimitationNote limitations={report.limitations} />
               <ExecutiveDecision decision={report.executiveDecision} />
               <MetricGrid metrics={report.metrics} />
               <RiskCallout riskAlerts={report.riskAlerts} />
@@ -64,8 +65,6 @@ export function ReportPage({ jobId, report }: { jobId: string; report: ReportMod
 
               <DecisionSummary strategy={report.strategy} />
               {evidenceSection && <EvidenceSection section={evidenceSection} />}
-
-              <LimitationNote limitations={report.limitations} />
 
               <CommentExplorer jobId={jobId} />
             </main>

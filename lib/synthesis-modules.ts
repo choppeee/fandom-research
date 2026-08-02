@@ -42,9 +42,27 @@ function ipTypeLine(ipType: IpTypeInfo): string {
   return `IP 유형: ${ipType.typeLabel} (대중은 "${ipType.audienceTerm}"으로, 정체성은 "${ipType.identityTerm}"으로 지칭하라)`;
 }
 
+// 단일 콘텐츠 모드: 영상 1개의 댓글만 근거로 한다. IP/브랜드 전체에 대한 결론을 막고,
+// 이 콘텐츠 안에서 무엇이 실제로 작동했는지로 초점을 좁힌다.
+const SINGLE_CONTENT_SCOPE_CONSTRAINT = `[리포트 범위 - 단일 콘텐츠 분석]
+이 분석은 영상 "하나"의 댓글만을 근거로 한다. 핵심 질문은 "이 콘텐츠 안에서 무엇이 실제로 작동했는가?"다.
+장면·맥락별 반응, 댓글이 영상의 어떤 구간/행동/대사를 가리키는지, 기대와 실제 반응의 격차, 반응 강도,
+예상 밖 반응, 새로운 시청자 유입 신호, 전환 신호(호감·구매의향·구독·공유 의사 표현), 부정 반응이 정확히
+무엇을 향한 것인지, 이 영상에서 무엇이 좋았고 다음에 무엇을 테스트해볼지에 집중하라.
+다음은 반드시 피하라: 이 IP/인물/브랜드 전체의 성격이나 정체성 단정, 브랜드 전체 포지셔닝 주장, 장기
+전략 제안, 팬덤 전체 인식에 대한 결론, 다른 콘텐츠와의 비교나 일반화, 영상 1개만으로 병목을 단정하는
+것. 이런 결론이 필요해 보이면 단정하지 말고 "이 결과는 이 영상에 한정되며, 더 넓은 결론을 위해서는 여러
+콘텐츠를 함께 봐야 한다"는 취지로 한계를 명확히 밝혀라.`;
+
+const BROAD_RESEARCH_SCOPE_CONSTRAINT = `[리포트 범위 - IP 전체 분석]
+이 분석은 여러 콘텐츠/기간에 걸친 데이터를 종합한다. 핵심 질문은 "여러 콘텐츠에서 어떤 인식과 패턴이
+반복되는가?"다. 콘텐츠 간 반복되는 패턴, 교차 비교, IP 전체 인식, 세그먼트, 관계 구조, 장기적 기회,
+포지셔닝에 집중하라.`;
+
 function situationLine(situation: SituationDiagnosis): string {
-  if (!situation.currentSituation) return "";
-  return `\n현재 상태 진단: ${situation.currentSituation}
+  const scopeLine = situation.scopeConstraint ? `\n${situation.scopeConstraint}\n` : "";
+  if (!situation.currentSituation) return scopeLine;
+  return `${scopeLine}\n현재 상태 진단: ${situation.currentSituation}
 지금 가장 중요한 목적: ${situation.currentPriority}
 핵심 질문: ${situation.keyQuestions.join(" / ")}
 (이 진단에 맞는 발견을 우선하되, 기계적으로 모든 질문에 답하려 하지 마라. 데이터가 다른 것을 보여주면 그것을 따른다.)`;
@@ -67,12 +85,16 @@ export async function runSituationDiagnosis(params: {
   keyword: string;
   ipType: IpTypeInfo;
   reportMode: ReportMode;
+  researchMode?: string;
   stats: Aggregates;
   sample: CommentSampleItem[];
 }): Promise<SituationDiagnosis> {
+  const scopeConstraint =
+    params.researchMode === "single_content" ? SINGLE_CONTENT_SCOPE_CONSTRAINT : BROAD_RESEARCH_SCOPE_CONSTRAINT;
   const prompt = `분석 대상(IP): "${params.keyword}"
 ${ipTypeLine(params.ipType)}
 리포트 모드: ${params.reportMode.toUpperCase()} — ${REPORT_MODE_GUIDE[params.reportMode]}
+${scopeConstraint}
 
 본격적인 심층 분석에 들어가기 전에, 지금 데이터를 훑어보고 다음을 판단하라.
 "이 IP는 지금 어떤 상태에 있는가?" — 미리 정해진 성장 단계 모델에 끼워맞추지 말고, 데이터가 보여주는
@@ -102,8 +124,8 @@ ${JSON.stringify(params.sample.slice(0, 40), null, 2)}`;
     messages: [{ role: "user", content: prompt }],
   });
   const toolUse = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-  if (!toolUse) return EMPTY_SITUATION_DIAGNOSIS;
-  return parseSituationDiagnosis(toolUse.input);
+  if (!toolUse) return { ...EMPTY_SITUATION_DIAGNOSIS, scopeConstraint };
+  return { ...parseSituationDiagnosis(toolUse.input), scopeConstraint };
 }
 
 /** 앞서 만들어진 모듈들의 결과를 입력으로 받아 그 위에 종합 판단을 얹는 후속 모듈 (구조화 Insight 출력). */

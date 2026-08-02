@@ -139,8 +139,9 @@ headline에서 결론을 선언하지 말고, 공식 포지션과 실제 반응�
 ];
 
 function situationLine(situation: SituationDiagnosis): string {
-  if (!situation.currentSituation) return "";
-  return `\n현재 상태 진단: ${situation.currentSituation}
+  const scopeLine = situation.scopeConstraint ? `\n${situation.scopeConstraint}\n` : "";
+  if (!situation.currentSituation) return scopeLine;
+  return `${scopeLine}\n현재 상태 진단: ${situation.currentSituation}
 지금 가장 중요한 목적: ${situation.currentPriority}
 핵심 질문: ${situation.keyQuestions.join(" / ")}
 (이 진단에 맞는 발견을 우선하되, 기계적으로 모든 질문에 답하려 하지 마라. 데이터가 다른 것을 보여주면 그것을 따른다.)`;
