@@ -47,6 +47,9 @@ export type ReportData = {
   generatedAt: string;
   reportMode: ReportMode;
   researchMode?: string;
+  // 대표 Evidence로 노출된 콘텐츠와 실제 데이터 커버리지의 차이를 알리는 노트.
+  // coverage_audit 태스크가 계산 못했거나(구버전 job) 실패했으면 null.
+  dataCoverageNote?: string | null;
   stats: Aggregates;
   modules: ModuleContent[];
   visualData: VisualData;
@@ -178,9 +181,14 @@ export function buildReportHtml(data: ReportData): string {
       disclaimer:
         data.researchMode === "single_content"
           ? `REPORT SCOPE: Single Content Analysis — 이 리포트는 입력한 영상 1개와 그 댓글만을 근거로 합니다. LIMITATION: 이 결과는 입력한 영상과 해당 댓글에 한정됩니다.`
-          : data.reportMode === "exploratory"
-            ? `표본이 ${data.videoCount + data.postCount}건의 콘텐츠, ${data.commentCount + data.postCount}건의 반응으로 작습니다. 이 리포트는 전체 ${data.keyword}에 대한 확정적 진단이 아니라, 현재 표본에서 발견된 반응 후보를 다룹니다.`
-            : undefined,
+          : [
+              data.reportMode === "exploratory"
+                ? `표본이 ${data.videoCount + data.postCount}건의 콘텐츠, ${data.commentCount + data.postCount}건의 반응으로 작습니다. 이 리포트는 전체 ${data.keyword}에 대한 확정적 진단이 아니라, 현재 표본에서 발견된 반응 후보를 다룹니다.`
+                : null,
+              data.dataCoverageNote ? `DATA COVERAGE — ${data.dataCoverageNote}` : null,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined,
       kpis: data.metrics.map((m) => ({ label: m.label, value: m.value })),
     })
   );

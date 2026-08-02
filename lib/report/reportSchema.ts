@@ -96,6 +96,10 @@ export type ReportModel = {
   strategy: StrategyResult | null;
   references: ValidatedReference[];
   limitations: string[];
+  // 대표 Evidence 범위와 실제 데이터 커버리지의 차이를 알리는 노트 - coverage_audit 태스크가
+  // 계산 못했거나(구버전 job) 실패했으면 null(빈 문자열로 거짓 "다 봤다"는 인상을 주지 않는다).
+  dataCoverageNote: string | null;
+  concentrationWarnings: string[];
   legacy: { blocks: LegacyBlock[]; rawFallback: string } | null;
 };
 

@@ -1,5 +1,6 @@
 import type { CollectParams, CollectResult, NormalizedPost, NormalizedVideo, PlatformCollector } from "./types";
 import { mapWithConcurrency } from "../concurrency";
+import { computeAuthorKey } from "../author-key";
 
 const COLLECT_CONCURRENCY = 5;
 
@@ -89,10 +90,16 @@ export async function getVideoDetails(videoIds: string[]): Promise<NormalizedVid
 /**
  * 영상 하나의 top-level 댓글을 가져온다 (commentThreads.list).
  * 댓글이 비활성화된 영상(403)은 빈 배열을 반환한다.
+ *
+ * 개인정보 최소화 원칙(PLAN.md 8.2): 작성자 실명/프로필/원본 채널 ID는 저장하지 않는다.
+ * 단, YouTube API가 함께 내려주는 authorChannelId는 "같은 job 안에서 같은 작성자인지"
+ * 판별하는 데만 필요하므로, 이 함수 안에서 즉시 job 범위 익명 키(authorKey)로 변환하고
+ * 원본 채널 ID는 그 자리에서 버린다 - 반환되는 NormalizedPost에도 원본은 담기지 않는다.
  */
 export async function getVideoComments(
   videoId: string,
-  maxComments: number
+  maxComments: number,
+  jobId: string
 ): Promise<NormalizedPost[]> {
   const comments: NormalizedPost[] = [];
   let pageToken: string | undefined;
@@ -118,11 +125,16 @@ export async function getVideoComments(
     for (const item of data.items ?? []) {
       const top = item.snippet?.topLevelComment?.snippet;
       if (!top) continue;
+      // authorChannelId가 없는 댓글(탈퇴 계정 등)은 작성자 식별 없이(authorKey: null) 저장한다 -
+      // 작성자명이나 프로필 이미지로 대신 추정하지 않는다.
+      const rawChannelId: string | undefined = top.authorChannelId?.value;
+      const authorKey = rawChannelId ? computeAuthorKey(jobId, rawChannelId) : null;
       comments.push({
         platform: "youtube",
         externalId: item.snippet.topLevelComment.id,
         url: `https://www.youtube.com/watch?v=${videoId}&lc=${item.snippet.topLevelComment.id}`,
-        author: null, // 개인정보 최소화 원칙 (PLAN.md 8.2)
+        author: null, // 개인정보 최소화 원칙 (PLAN.md 8.2) - 원본 작성자 정보는 저장하지 않는다
+        authorKey,
         text: top.textOriginal ?? "",
         createdAt: top.publishedAt ?? null,
         likeCount: Number(top.likeCount ?? 0),
@@ -153,7 +165,7 @@ export const youtubeCollector: PlatformCollector = {
     const videos = await getVideoDetails(videoIds);
 
     const postChunks = await mapWithConcurrency(videos, COLLECT_CONCURRENCY, async (v) => {
-      const comments = await getVideoComments(v.videoId, maxCommentsPerVideo);
+      const comments = await getVideoComments(v.videoId, maxCommentsPerVideo, params.jobId);
       return comments.map((c) => ({ ...c, searchQuery: params.keyword }));
     });
 

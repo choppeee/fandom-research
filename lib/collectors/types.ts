@@ -6,6 +6,9 @@ export type NormalizedPost = {
   externalId: string;
   url?: string | null;
   author?: string | null;
+  // 원본 작성자 식별자가 아니라 job 범위 익명 키(lib/author-key.ts). 같은 job 안에서만
+  // 같은 작성자가 같은 값을 가지며, 다른 job으로는 추적할 수 없다.
+  authorKey?: string | null;
   text: string;
   createdAt: string | null;
   likeCount: number;
@@ -33,6 +36,7 @@ export type NormalizedVideo = {
 };
 
 export type CollectParams = {
+  jobId: string; // 작성자 익명 키(HMAC) 생성 범위 - 이 job 안에서만 유효한 authorKey를 만드는 데 쓰인다.
   keyword: string;
   periodStart: string;
   periodEnd: string;

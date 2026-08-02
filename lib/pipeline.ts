@@ -13,6 +13,9 @@ import {
   runExecutiveSummarySynthesis,
   runEditorialPass,
   runSituationDiagnosis,
+  runCoverageClassification,
+  type CoverageInsightInput,
+  type CoverageCommentInput,
 } from "./synthesis-modules";
 import { searchValidatedReferences, type ValidatedReference } from "./reference-search";
 import { extractVisualData } from "./visual-data";
@@ -23,7 +26,18 @@ import {
   EMPTY_SITUATION_DIAGNOSIS,
   type EditorialInsight,
   type SituationDiagnosis,
+  type StructuredInsight,
+  type SupportingCoverage,
 } from "./insight-types";
+import {
+  computeStructuralCoverage,
+  computeConcentrationWarnings,
+  computeAuthorMetricStatus,
+  computeInsightAuthorCoverage,
+  computeAuthorConcentrationWarnings,
+  buildDataCoverageNote,
+  type CoverageAudit,
+} from "./coverage-audit";
 import { classifyIpType, FALLBACK_IP_TYPE, type IpTypeInfo } from "./ip-classify";
 import { computeReportMode, type ReportMode } from "./report-mode";
 import { lintAndLog } from "./style-lint";
@@ -53,6 +67,7 @@ const PHASE_ORDER = [
   "positioning",
   "strategy_actions",
   "editorial",
+  "coverage",
   "reference",
   "executive_summary",
   "visual_data",
@@ -72,6 +87,7 @@ const PHASE_START_PROGRESS: Record<Phase, number> = {
   positioning: 81,
   strategy_actions: 84,
   editorial: 88,
+  coverage: 90,
   reference: 91,
   executive_summary: 94,
   visual_data: 97,
@@ -94,9 +110,20 @@ function isPhase(v: string): v is Phase {
   return (PHASE_ORDER as readonly string[]).includes(v);
 }
 
-// 이 태스크들이 완전히 실패하면 리포트 자체를 만들 수 없으므로 job 전체를 실패 처리한다.
-// 그 외(모듈 하나, X 수집, 레퍼런스 검색 등)는 실패해도 해당 부분만 비운 채 계속 진행한다.
-const CRITICAL_TASK_TYPES = new Set(["collect_youtube", "aggregate", "assemble"]);
+// 이 태스크들이 완전히 실패하면 리포트 자체를 만들 수 없거나(수집/집계/조립), "그래서 뭘 해야
+// 하는가"에 해당하는 결정 레이어(editorial_pass/executive_summary/strategy_actions_ideas)가
+// 통째로 비어버리므로 job 전체를 실패 처리한다. 새 헌법(CLAUDE.md) 기준상 이 결정 레이어는
+// 선택 사항이 아니라 제품의 핵심이라 "일부만 비운 채 done" 처리를 허용하지 않는다.
+// 그 외(모듈 하나, X 수집, 레퍼런스 검색, positioning 등)는 실패해도 해당 부분만 비운 채 계속 진행한다.
+const CRITICAL_TASK_TYPES = new Set([
+  "collect_youtube",
+  "aggregate",
+  "assemble",
+  "editorial_pass",
+  "executive_summary",
+  "strategy_actions_ideas",
+  "positioning_strategy",
+]);
 
 async function setJobState(admin: SupabaseClient, jobId: string, patch: Record<string, unknown>) {
   await admin
@@ -313,6 +340,10 @@ async function enqueuePhase(admin: SupabaseClient, job: Job, phase: Phase) {
       await enqueueTasks(admin, job.id, [{ type: "editorial_pass", payload: { phase: "editorial" } }]);
       return;
 
+    case "coverage":
+      await enqueueTasks(admin, job.id, [{ type: "coverage_audit", payload: { phase: "coverage" } }]);
+      return;
+
     case "reference":
       await enqueueTasks(admin, job.id, [{ type: "reference_search", payload: { phase: "reference" } }]);
       return;
@@ -498,11 +529,12 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       if (job.research_mode === "single_content" && job.source_id) {
         // 단일 콘텐츠 모드: 키워드 검색을 건너뛰고 지정된 영상 하나만 직접 수집한다.
         const videos = await getVideoDetails([job.source_id]);
-        const posts = await getVideoComments(job.source_id, job.max_comments_per_video);
+        const posts = await getVideoComments(job.source_id, job.max_comments_per_video, job.id);
         result = { configured: true, posts, videos };
       } else {
         const collector = getCollector("youtube");
         result = await collector.collect({
+          jobId: job.id,
           keyword: job.keyword,
           periodStart: job.period_start,
           periodEnd: job.period_end,
@@ -537,7 +569,8 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
             job_id: job.id,
             video_id: p.videoId,
             comment_id: p.externalId,
-            author_display: null,
+            author_display: null, // 원본 작성자 정보는 저장하지 않는다 (PLAN.md 8.2)
+            author_key: p.authorKey ?? null, // job 범위 익명 키 - 원본 채널ID가 아님
             text_original: p.text,
             like_count: p.likeCount,
             published_at: p.createdAt,
@@ -555,6 +588,7 @@ async function executeTask(admin: SupabaseClient, job: Job, task: AnalysisTask) 
       if (!collector.isConfigured()) return; // 미연결 - 조용히 스킵 (X_NOT_CONFIGURED)
 
       const result = await collector.collect({
+        jobId: job.id,
         keyword: job.keyword,
         periodStart: job.period_start,
         periodEnd: job.period_end,
@@ -844,6 +878,18 @@ CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체�
       edited.flatMap((i) => [i.headline, i.interpretation, i.whyItMatters, i.strategicImplication])
     );
 
+    // 편집 단계에서 통째로 사라진 대표 증거(comment_id) - coverage_audit 단계가 이 목록을
+    // video_id로 변환해 "편집 과정에서 제외된 콘텐츠"를 추적하는 데 쓴다.
+    const preEditEvidenceIds = new Set(flattened.flatMap((i) => (Array.isArray(i.evidenceIds) ? i.evidenceIds : [])));
+    const postEditEvidenceIds = new Set(edited.flatMap((i) => (Array.isArray(i.evidenceIds) ? i.evidenceIds : [])));
+    const droppedEvidenceIds = [...preEditEvidenceIds].filter((id) => !postEditEvidenceIds.has(id));
+    const { data: existingInsightRow } = await admin.from("job_insights").select("raw_json").eq("job_id", job.id).maybeSingle();
+    const rawForDrop = (existingInsightRow?.raw_json ?? {}) as Record<string, unknown>;
+    await admin
+      .from("job_insights")
+      .update({ raw_json: { ...rawForDrop, editorialDroppedEvidenceIds: droppedEvidenceIds } })
+      .eq("job_id", job.id);
+
     const byModule = new Map<string, EditorialInsight[]>();
     for (const ins of edited) {
       const list = byModule.get(ins.moduleKey) ?? [];
@@ -865,6 +911,222 @@ CONTRADICTION(플랫폼별로 다른 반응)을 구분하라. 이 차이 자체�
         content: wrapStoredContent({ kind: "insights", data: updated }),
       });
     }
+    return;
+  }
+
+  if (task.task_type === "coverage_audit") {
+    const modules = await getAllModules(admin, job.id);
+
+    const [{ data: commentRows }, { data: videoRows }] = await Promise.all([
+      admin.from("youtube_comments").select("comment_id, video_id, text_original, author_key").eq("job_id", job.id),
+      admin.from("youtube_videos").select("video_id").eq("job_id", job.id),
+    ]);
+
+    const allVideoIds = (videoRows ?? []).map((v) => v.video_id as string);
+    const allCommentIds = (commentRows ?? []).map((c) => c.comment_id as string);
+    const commentToVideo = new Map<string, string | null>();
+    const commentToAuthorKey = new Map<string, string | null>();
+    const videoCommentCounts = new Map<string, number>(allVideoIds.map((v) => [v, 0]));
+    let commentsWithAuthorKeyTotal = 0;
+    for (const c of commentRows ?? []) {
+      const videoId = (c.video_id as string) ?? null;
+      commentToVideo.set(c.comment_id as string, videoId);
+      const authorKey = (c.author_key as string) ?? null;
+      commentToAuthorKey.set(c.comment_id as string, authorKey);
+      if (authorKey) commentsWithAuthorKeyTotal++;
+      if (videoId) videoCommentCounts.set(videoId, (videoCommentCounts.get(videoId) ?? 0) + 1);
+    }
+    const authorMetricStatus = computeAuthorMetricStatus(allCommentIds.length, commentsWithAuthorKeyTotal);
+
+    type FlatInsight = { insightId: number; moduleKey: string; insightIndex: number; insight: StructuredInsight };
+    const flat: FlatInsight[] = [];
+    let counter = 0;
+    for (const m of modules) {
+      const parsed = parseStoredModuleContent(m.content_md);
+      if (!parsed || parsed.kind !== "insights" || !parsed.data.applicable) continue;
+      parsed.data.insights.forEach((insight, insightIndex) => {
+        flat.push({ insightId: counter++, moduleKey: m.module_key, insightIndex, insight });
+      });
+    }
+    if (flat.length === 0) return; // 인사이트가 없으면 커버리지도 계산 불가 - 비핵심 태스크라 조용히 스킵
+
+    const structural = computeStructuralCoverage({
+      insights: flat.map((f) => f.insight),
+      commentToVideo,
+      allVideoIds,
+      allCommentIds,
+      videoCommentCounts,
+    });
+
+    const coverageInsightInput: CoverageInsightInput[] = flat.map((f) => ({
+      insightId: f.insightId,
+      moduleKey: f.moduleKey,
+      headline: f.insight.headline,
+      interpretation: f.insight.interpretation,
+    }));
+    const coverageCommentInput: CoverageCommentInput[] = (commentRows ?? []).map((c) => ({
+      commentId: c.comment_id as string,
+      videoId: (c.video_id as string) ?? null,
+      text: (c.text_original as string) ?? "",
+    }));
+    const classification = await runCoverageClassification({
+      keyword: job.keyword,
+      insights: coverageInsightInput,
+      comments: coverageCommentInput,
+    });
+
+    const byInsightId = new Map(classification.items.map((it) => [it.insightId, it]));
+    const matchedVideoIdsUnion = new Set<string>();
+    const insightsDominatedBySameVideo = new Map<string, string[]>(); // videoId -> headlines (구조적 dominant, evidenceIds 기준)
+    const perInsightAuthorCoverage: { headline: string; coverage: SupportingCoverage }[] = [];
+    let crossContentRepeatCount = 0;
+
+    for (const f of flat) {
+      const item = byInsightId.get(f.insightId);
+      const matchedVideoIds = new Set<string>();
+      if (item) {
+        for (const cid of item.matchedCommentIds) {
+          const videoId = commentToVideo.get(cid);
+          if (videoId) matchedVideoIds.add(videoId);
+        }
+        matchedVideoIds.forEach((v) => matchedVideoIdsUnion.add(v));
+        if (matchedVideoIds.size >= 2) crossContentRepeatCount++;
+        const authorCoverage = computeInsightAuthorCoverage({
+          matchedCommentIds: item.matchedCommentIds,
+          commentToAuthorKey,
+        });
+        f.insight.supportingCoverage = {
+          contentCount: matchedVideoIds.size,
+          commentCount: new Set(item.matchedCommentIds).size,
+          ...authorCoverage,
+        };
+        f.insight.scope = item.scope;
+        f.insight.scopeNote = item.scopeNote;
+        perInsightAuthorCoverage.push({ headline: f.insight.headline, coverage: f.insight.supportingCoverage });
+      }
+
+      const evidenceVideoCounts = new Map<string, number>();
+      for (const id of Array.isArray(f.insight.evidenceIds) ? f.insight.evidenceIds : []) {
+        const videoId = commentToVideo.get(id);
+        if (videoId) evidenceVideoCounts.set(videoId, (evidenceVideoCounts.get(videoId) ?? 0) + 1);
+      }
+      const dominant = [...evidenceVideoCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (dominant) {
+        const list = insightsDominatedBySameVideo.get(dominant) ?? [];
+        list.push(f.insight.headline);
+        insightsDominatedBySameVideo.set(dominant, list);
+      }
+    }
+
+    const byModule = new Map<string, FlatInsight[]>();
+    for (const f of flat) {
+      const list = byModule.get(f.moduleKey) ?? [];
+      list.push(f);
+      byModule.set(f.moduleKey, list);
+    }
+    for (const m of modules) {
+      const items = byModule.get(m.module_key);
+      if (!items || items.length === 0) continue;
+      const parsed = parseStoredModuleContent(m.content_md);
+      if (!parsed || parsed.kind !== "insights") continue;
+      const updated = {
+        ...parsed.data,
+        insights: [...items].sort((a, b) => a.insightIndex - b.insightIndex).map((f) => f.insight),
+      };
+      await saveModule(admin, job.id, m.module_key, m.platform, {
+        title: m.title,
+        content: wrapStoredContent({ kind: "insights", data: updated }),
+      });
+    }
+
+    let baselineAdded = false;
+    if (classification.baseline.applicable && classification.baseline.headline) {
+      const matchedVideoIds = new Set(classification.baseline.matchedVideoIds);
+      const baselineAuthorCoverage = computeInsightAuthorCoverage({
+        matchedCommentIds: classification.baseline.evidenceCommentIds,
+        commentToAuthorKey,
+      });
+      const baselineInsight: StructuredInsight = {
+        headline: classification.baseline.headline,
+        interpretation: classification.baseline.interpretation,
+        evidence: [],
+        evidenceIds: classification.baseline.evidenceCommentIds,
+        evidenceScope: "여러 콘텐츠에 걸쳐 반복되는 안정 패턴",
+        surfaceExpression: "",
+        emotionalMeaning: "",
+        underlyingIntent: "",
+        whyItMatters: classification.baseline.whyItMatters,
+        strategicImplication: "",
+        confidence: "MEDIUM",
+        supportingCoverage: {
+          contentCount: matchedVideoIds.size,
+          commentCount: classification.baseline.evidenceCommentIds.length,
+          ...baselineAuthorCoverage,
+        },
+        scope: "broad_repeated",
+        scopeNote: "여러 콘텐츠에서 반복 확인되어 별도 인사이트로 승격됨",
+      };
+      perInsightAuthorCoverage.push({ headline: baselineInsight.headline, coverage: baselineInsight.supportingCoverage! });
+      await saveModule(admin, job.id, "baseline_stability", null, {
+        title: "조용했던 콘텐츠들에서 반복되는 패턴",
+        content: wrapStoredContent({
+          kind: "insights",
+          data: { applicable: true, notApplicableReason: "", insights: [baselineInsight] },
+        }),
+      });
+      baselineAdded = true;
+      matchedVideoIds.forEach((v) => matchedVideoIdsUnion.add(v));
+    }
+
+    const { data: insightRowForCoverage } = await admin.from("job_insights").select("raw_json").eq("job_id", job.id).maybeSingle();
+    const rawForCoverage = (insightRowForCoverage?.raw_json ?? {}) as Record<string, unknown>;
+    const droppedEvidenceIds = Array.isArray(rawForCoverage.editorialDroppedEvidenceIds)
+      ? (rawForCoverage.editorialDroppedEvidenceIds as string[])
+      : [];
+    const contentsDroppedDuringEditorialSelection = new Set(
+      droppedEvidenceIds.map((id) => commentToVideo.get(id)).filter((v): v is string => Boolean(v))
+    ).size;
+
+    const contentsMatchedToAnyPattern = matchedVideoIdsUnion.size;
+    const contentsWithOnlyBaselineReactions = Math.max(0, structural.totalContentsAnalyzed - contentsMatchedToAnyPattern);
+    const concentrationWarnings = [
+      ...computeConcentrationWarnings({
+        evidenceConcentration: structural.evidenceConcentration,
+        topContentEvidenceShare: structural.topContentEvidenceShare,
+        totalContentsAnalyzed: structural.totalContentsAnalyzed,
+        contentsReferencedInFinalReport: structural.contentsReferencedInFinalReport,
+        insightsDominatedBySameVideo: [...insightsDominatedBySameVideo.entries()].map(([videoId, insightHeadlines]) => ({
+          videoId,
+          insightHeadlines,
+        })),
+      }),
+      ...computeAuthorConcentrationWarnings(perInsightAuthorCoverage),
+    ];
+    const dataCoverageNote = buildDataCoverageNote({
+      totalContentsAnalyzed: structural.totalContentsAnalyzed,
+      totalCommentsAnalyzed: structural.totalCommentsAnalyzed,
+      finalInsightCount: flat.length + (baselineAdded ? 1 : 0),
+      contentsReferencedInFinalReport: structural.contentsReferencedInFinalReport,
+      contentsMatchedToAnyPattern,
+      baselineInsightAdded: baselineAdded,
+    });
+
+    const audit: CoverageAudit = {
+      ...structural,
+      authorMetricStatus,
+      contentsDroppedDuringEditorialSelection,
+      contentsMatchedToAnyPattern,
+      contentsWithOnlyBaselineReactions,
+      crossContentRepeatCount,
+      concentrationWarnings,
+      dataCoverageNote,
+    };
+
+    const { error: coverageSaveError } = await admin
+      .from("job_insights")
+      .update({ raw_json: { ...rawForCoverage, coverageAudit: audit } })
+      .eq("job_id", job.id);
+    if (coverageSaveError) console.error(`[coverage_audit] 저장 실패: ${coverageSaveError.message}`);
     return;
   }
 
@@ -938,6 +1200,7 @@ export const REPORT_ORDER = [
   "cross_platform",
   "hidden_value",
   "risk_misperception",
+  "baseline_stability",
   "positioning_strategy",
   "strategy_actions_ideas",
 ];

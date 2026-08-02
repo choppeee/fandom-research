@@ -6,6 +6,7 @@ import {
   type StrategyResult,
 } from "../insight-types";
 import { EMPTY_SITUATION_DIAGNOSIS } from "../insight-types";
+import { adjustEvidenceStrengthForAuthorConcentration, type CoverageAudit } from "../coverage-audit";
 import { FALLBACK_IP_TYPE, type IpTypeInfo } from "../ip-classify";
 import type { ReportMode } from "../report-mode";
 import type { ValidatedReference } from "../reference-search";
@@ -33,7 +34,13 @@ export type ReportModelInput = {
     risk_alerts: { level: "caution" | "high_risk"; count?: number; example_comment_id?: string | null }[] | null;
     research_references: ValidatedReference[] | null;
     generated_at: string | null;
-    raw_json: { sample?: unknown; ipType?: IpTypeInfo; reportMode?: ReportMode; situation?: SituationDiagnosis } | null;
+    raw_json: {
+      sample?: unknown;
+      ipType?: IpTypeInfo;
+      reportMode?: ReportMode;
+      situation?: SituationDiagnosis;
+      coverageAudit?: CoverageAudit;
+    } | null;
   } | null;
   moduleRows: ModuleRow[];
   videoCount: number;
@@ -49,18 +56,26 @@ function buildCanonicalInsights(moduleRows: ModuleRow[], evidenceSource: Evidenc
     const parsed = parseStoredModuleContent(row.content_md ?? "");
     if (!parsed || parsed.kind !== "insights" || !parsed.data.applicable) continue;
     parsed.data.insights.forEach((ins, idx) => {
+      const evidencePackage = buildEvidencePackage({
+        insightId: `${row.module_key}-${idx}`,
+        headline: ins.headline,
+        evidenceIds: ins.evidenceIds,
+        confidence: ins.confidence,
+        source: evidenceSource,
+      });
+      // 댓글 수가 많아도 소수 작성자가 반복 작성한 것이면 근거 강도를 자동으로 높이지 않는다.
+      if (ins.supportingCoverage) {
+        evidencePackage.evidenceStrength = adjustEvidenceStrengthForAuthorConcentration(
+          evidencePackage.evidenceStrength,
+          ins.supportingCoverage
+        );
+      }
       out.push({
         ...ins,
         id: `${row.module_key}-${idx}`,
         moduleKey: row.module_key,
         moduleTitle: row.title || row.module_key,
-        evidencePackage: buildEvidencePackage({
-          insightId: `${row.module_key}-${idx}`,
-          headline: ins.headline,
-          evidenceIds: ins.evidenceIds,
-          confidence: ins.confidence,
-          source: evidenceSource,
-        }),
+        evidencePackage,
       });
     });
   }
@@ -131,6 +146,7 @@ export function buildReportModel(input: ReportModelInput): ReportModel {
   const situation = raw?.situation ?? EMPTY_SITUATION_DIAGNOSIS;
   const researchMode = input.researchMode ?? "broad_research";
   const isSingleContent = researchMode === "single_content";
+  const coverageAudit = raw?.coverageAudit ?? null;
 
   const stats: Aggregates = {
     topKeywords: input.insightRow?.top_keywords ?? [],
@@ -222,6 +238,8 @@ export function buildReportModel(input: ReportModelInput): ReportModel {
         : []),
       ...(reportMode === "exploratory" ? ["표본이 작아(Exploratory 모드) 진단·전략 결론이 후보 수준으로 절제되어 있습니다."] : []),
     ],
+    dataCoverageNote: coverageAudit?.dataCoverageNote ?? null,
+    concentrationWarnings: coverageAudit?.concentrationWarnings ?? [],
     legacy,
   };
 }

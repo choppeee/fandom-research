@@ -197,6 +197,7 @@ export async function GET(
       : new Date().toLocaleDateString("ko-KR"),
     reportMode,
     researchMode: job.research_mode ?? "broad_research",
+    dataCoverageNote: reportModel.dataCoverageNote,
     stats,
     modules,
     metrics: reportModel.metrics,

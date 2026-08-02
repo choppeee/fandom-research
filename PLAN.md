@@ -499,13 +499,15 @@ create index if not exists idx_tasks_job_status on analysis_tasks(job_id, status
 
 ### 8.2 개인정보 최소화 원칙
 
-- 댓글 작성자의 **표시 닉네임(author_display)** 정도만 저장하고, 프로필 사진 URL, 채널 URL 등 추가 식별 정보는 MVP에서는 저장하지 않는다.
+- **원본 작성자 정보는 저장하지 않는다**: 표시 닉네임(`author_display`는 항상 `null`), 프로필 사진 URL, 원본 YouTube 채널 ID, 채널 URL, 여러 리서치 작업을 가로질러 사용자를 추적할 수 있는 영구 식별자는 어디에도 저장하지 않는다.
+- **예외 - job 범위 익명 작성자 키(`author_key`)**: 반복 작성자가 소수인지(여론 쏠림) 다수인지(넓은 확산)를 구분하는 데는 "신원"이 아니라 "이 job 안에서 같은 사람인지" 정보만 필요하다. 이를 위해 수집 시점(`lib/collectors/youtube.ts`)에만 YouTube API의 `authorChannelId`를 읽어 `HMAC-SHA256(AUTHOR_HASH_SECRET, "${jobId}:${authorChannelId}")`로 즉시 변환하고, 원본 채널 ID는 그 자리에서 버린다(`lib/author-key.ts`). 같은 job 안에서는 같은 작성자가 같은 키를 갖지만, 다른 job에서는 같은 작성자라도 완전히 다른 키가 나와 작업을 가로지른 추적이 불가능하다. `author_key`는 화면·PDF·CSV·API 응답·로그 어디에도 노출하지 않고, 집계된 숫자(고유 작성자 수, 집중도 비율 등)로만 쓰인다(`lib/coverage-audit.ts`).
+- `AUTHOR_HASH_SECRET` 환경변수가 없으면 `author_key` 계산이 조용히 기본값으로 대체되지 않고 에러를 던진다.
 - 이메일, 전화번호 등 댓글 본문에 포함될 수 있는 개인정보(PII)가 분석/리포트에 그대로 노출되지 않도록, 리포트 생성 시 **PII 마스킹 필터**를 검토한다(향후 단계에서 정규식 기반 1차 마스킹 적용 권장).
 - 아동·청소년 관련 콘텐츠(예: 미성년 아티스트 팬덤)를 다룰 경우, 댓글 작성자 신원 특정 목적의 분석은 하지 않는다.
 
 ### 8.3 데이터 보관 및 삭제
 
-- 사용자가 Job을 삭제하면 관련 원문 데이터(`youtube_videos`, `youtube_comments`)와 분석 결과(`comment_analysis`, `job_insights`)를 **연쇄 삭제(cascade)** 하도록 설계한다(위 스키마의 `on delete cascade` 참고).
+- 사용자가 Job을 삭제하면 관련 원문 데이터(`youtube_videos`, `youtube_comments` - `author_key` 포함)와 분석 결과(`comment_analysis`, `job_insights`)를 **연쇄 삭제(cascade)** 하도록 설계한다(위 스키마의 `on delete cascade` 참고). `author_key`는 별도 보관 없이 이 cascade에 포함되므로, job 삭제만으로 retention이 처리된다.
 - 장기 미사용 Job(예: 1년 이상)에 대한 자동 정리(retention) 정책을 추후 도입 검토한다.
 
 ### 8.4 저작권

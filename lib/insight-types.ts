@@ -42,6 +42,35 @@ export type BottleneckType =
 
 export type PossibleBottleneck = { type: BottleneckType; evidence: string; confidence: Confidence };
 
+/** 이 인사이트가 전체 데이터에서 얼마나 넓게 반복되는지. "대표 Evidence(evidenceIds, 보통
+ * 3~4건)"와는 별개 개념 - 대표 Evidence는 독자에게 보여줄 사례고, 이건 그 패턴이 실제로
+ * 몇 개 콘텐츠/댓글에서 확인됐는지를 커버리지 감사 단계(lib/coverage-audit.ts,
+ * runCoverageClassification)가 전체 댓글을 다시 훑어 계산한 값이다. */
+/** 작성자 관련 지표는 원본 신원이 아니라 job 범위 익명 키(lib/author-key.ts, author_key
+ * 컬럼)로만 계산한다 - "누가 썼는지"가 아니라 "같은 사람이 몇 번 반복했는지"만 본다.
+ * author_key가 없는 댓글(레거시 job, authorChannelId 없는 댓글)은 각각 별개 작성자로도,
+ * 하나의 작성자로도 취급하지 않고 commentsWithoutAuthorKey로만 센다. */
+export type SupportingCoverage = {
+  contentCount: number; // 이 패턴이 실제로 확인된 콘텐츠(영상) 수
+  commentCount: number; // 이 패턴이 실제로 확인된 댓글 수
+  commentsWithAuthorKey: number; // author_key가 있는 댓글 수 (분모)
+  commentsWithoutAuthorKey: number; // author_key가 없는 댓글 수
+  // author_key가 있는 댓글 안에서 확인된 "최소" 고유 작성자 수. null = 이 job 자체에
+  // author_key가 전혀 없음(레거시 job) - 0과 구분하기 위해 명시적으로 null.
+  knownUniqueAuthorCount: number | null;
+  authorCoverageRate: number | null; // commentsWithAuthorKey / commentCount, commentCount=0이면 null
+  commentsPerKnownAuthor: number | null; // commentsWithAuthorKey / knownUniqueAuthorCount
+  // 가장 많이 등장한 authorKey 하나가 commentsWithAuthorKey에서 차지하는 비율(0~1).
+  // authorKey 자체는 어디에도 노출하지 않고 이 비율만 남긴다.
+  topAuthorCommentShare: number | null;
+};
+
+/** 이 인사이트의 적용 범위 - supportingCoverage.contentCount를 사람이 읽는 라벨로 분류한 것. */
+export type InsightScope =
+  | "single_content_exploratory" // 현재 한 개 콘텐츠에서만 확인된 탐색적 신호
+  | "concentrated" // 소수(2~수개) 콘텐츠에 집중 - 대체로 같은 포맷/협업 상대 등 공통 조건 아래
+  | "broad_repeated"; // 서로 다른 여러 콘텐츠·맥락에 걸쳐 반복 확인됨
+
 export type StructuredInsight = {
   headline: string;
   interpretation: string;
@@ -65,6 +94,12 @@ export type StructuredInsight = {
   // LLM이 채우는 필드가 아니라, 같은 핵심 근거(영상)를 공유하는 다른 모듈의 발견을 코드에서
   // 병합했을 때만 채워지는 헤드라인 목록 (lib/report/selectSections.ts의 dedupeByDominantEvidence).
   relatedFindings?: string[];
+  // 이하 두 필드도 LLM이 analyst/editorial 단계에서 채우는 게 아니라, 별도의 커버리지 감사
+  // 단계(coverage_audit 태스크)가 전체 댓글을 다시 훑어 채워 넣는다 - 채워지기 전(구버전 job)에는
+  // undefined이며, 이 경우 "아직 측정하지 않음"으로 취급한다("범위가 좁다"고 단정하지 않는다).
+  supportingCoverage?: SupportingCoverage;
+  scope?: InsightScope;
+  scopeNote?: string; // scope를 사람이 읽는 한 문장으로 - 예: "특정 외부 협업 콘텐츠에서 강하게 확인됨"
 };
 
 export type ModuleResult = {
@@ -321,6 +356,12 @@ export const DECISION_KO: Record<DecisionType, string> = {
   WATCH: "관찰",
   AVOID: "보류",
   NO_CHANGE: "현행 유지",
+};
+
+export const INSIGHT_SCOPE_KO: Record<InsightScope, string> = {
+  single_content_exploratory: "탐색적 · 단일 콘텐츠",
+  concentrated: "집중 · 소수 콘텐츠",
+  broad_repeated: "반복 · 여러 콘텐츠",
 };
 
 const BOTTLENECK_KO: Record<BottleneckType, string> = {
@@ -765,4 +806,111 @@ export const EDITORIAL_PASS_SCHEMA = {
 export function parseEditorialPassResult(input: any): EditorialInsight[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (input?.edited_insights ?? []).map((i: any) => ({ moduleKey: i.module_key ?? "", ...parseInsight(i) }));
+}
+
+// ---------------------------------------------------------------------------
+// Coverage Classification — editorial pass 이후, 대표 Evidence(evidenceIds)가 아니라
+// "이 패턴이 전체 댓글 중 실제로 몇 건/몇 개 콘텐츠에서 반복되는가"를 전체 댓글을 다시
+// 훑어서 판정한다. lib/coverage-audit.ts의 결정론적 통계와 짝을 이룬다.
+// ---------------------------------------------------------------------------
+
+export type CoverageClassificationItem = {
+  insightId: number;
+  matchedCommentIds: string[];
+  scope: InsightScope;
+  scopeNote: string;
+};
+
+export type CoverageBaselineCandidate = {
+  applicable: boolean;
+  headline: string;
+  interpretation: string;
+  evidenceCommentIds: string[];
+  matchedVideoIds: string[];
+  whyItMatters: string;
+};
+
+export type CoverageClassificationResult = {
+  items: CoverageClassificationItem[];
+  baseline: CoverageBaselineCandidate;
+};
+
+const INSIGHT_SCOPE_ENUM = ["single_content_exploratory", "concentrated", "broad_repeated"] as const;
+
+export const COVERAGE_CLASSIFICATION_SCHEMA = {
+  name: "record_coverage_classification",
+  description:
+    "각 insight의 패턴이 전체 댓글 중 실제로 어디까지 반복되는지 판정하고, 조건을 충족하면 '조용한 콘텐츠들의 공통 안정 패턴'을 별도 insight 후보로 제안한다.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      insight_coverage: {
+        type: "array" as const,
+        description: "입력으로 주어진 각 insight_id에 대해 정확히 하나씩.",
+        items: {
+          type: "object" as const,
+          properties: {
+            insight_id: { type: "integer" as const },
+            matched_comment_ids: {
+              type: "array" as const,
+              items: { type: "string" as const },
+              description:
+                "제공된 [전체 댓글] 목록 중, 이 insight의 headline/interpretation이 설명하는 패턴과 실제로 일치하는 댓글의 comment_id 전부(대표 evidence로 이미 인용된 것 포함). 표면적으로 같은 키워드를 썼다고 무조건 포함하지 말고, 실제로 같은 반응 구조인지 판단한다. 제공된 목록에 없는 id를 지어내지 않는다.",
+            },
+            scope: {
+              type: "string" as const,
+              enum: INSIGHT_SCOPE_ENUM,
+              description:
+                "single_content_exploratory: 매칭된 댓글이 사실상 콘텐츠 1개에만 몰림. concentrated: 소수(2~수개) 콘텐츠에 집중(대체로 같은 포맷/협업 상대 등 공통 조건). broad_repeated: 서로 다른 여러 콘텐츠·맥락에 걸쳐 반복.",
+            },
+            scope_note: {
+              type: "string" as const,
+              description: '한 문장. 예: "특정 외부 협업 콘텐츠에서 강하게 확인됨", "본인 채널과 외부 협업 양쪽에서 반복됨"',
+            },
+          },
+          required: ["insight_id", "matched_comment_ids", "scope", "scope_note"],
+        },
+      },
+      baseline: {
+        type: "object" as const,
+        description:
+          "다른 insight 어디에도 매칭되지 않은 '조용한' 콘텐츠들을 검토해, 다음 조건을 모두 충족할 때만 applicable=true로 승격한다: (1) 상당수 콘텐츠에서 유사한 반응 구조가 반복됨 (2) 부정/강한 전환은 없지만 안정적인 소비 패턴이 확인됨 (3) 그 안정성이 실제 의사결정에 영향을 줌 (4) 핵심 콘텐츠와의 반응 차이가 비교 가능함 (5) '조용함'이 단순히 댓글 수 부족 때문이 아님. 하나라도 미충족이면 applicable=false로 두고 나머지 필드는 비운다 - 억지로 만들지 않는다.",
+        properties: {
+          applicable: { type: "boolean" as const },
+          headline: { type: "string" as const, description: "applicable=true일 때만. 다른 insight와 같은 문체 기준." },
+          interpretation: { type: "string" as const, description: "applicable=true일 때만." },
+          evidence_comment_ids: { type: "array" as const, items: { type: "string" as const } },
+          matched_video_ids: { type: "array" as const, items: { type: "string" as const } },
+          why_it_matters: { type: "string" as const },
+        },
+        required: ["applicable"],
+      },
+    },
+    required: ["insight_coverage", "baseline"],
+  },
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseCoverageClassificationResult(input: any): CoverageClassificationResult {
+  const items: CoverageClassificationItem[] = Array.isArray(input?.insight_coverage)
+    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      input.insight_coverage.map((i: any) => ({
+        insightId: Number(i.insight_id),
+        matchedCommentIds: Array.isArray(i.matched_comment_ids) ? i.matched_comment_ids : [],
+        scope: (INSIGHT_SCOPE_ENUM as readonly string[]).includes(i.scope) ? i.scope : "single_content_exploratory",
+        scopeNote: i.scope_note ?? "",
+      }))
+    : [];
+
+  const b = input?.baseline;
+  const baseline: CoverageBaselineCandidate = {
+    applicable: Boolean(b?.applicable),
+    headline: b?.headline ?? "",
+    interpretation: b?.interpretation ?? "",
+    evidenceCommentIds: Array.isArray(b?.evidence_comment_ids) ? b.evidence_comment_ids : [],
+    matchedVideoIds: Array.isArray(b?.matched_video_ids) ? b.matched_video_ids : [],
+    whyItMatters: b?.why_it_matters ?? "",
+  };
+
+  return { items, baseline };
 }

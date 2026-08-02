@@ -16,6 +16,7 @@ export const MODULE_SECTION_MAP: Record<string, ReportSectionKey> = {
   psychological_drivers: "diagnosis",
   relationship_dynamics: "diagnosis",
   risk_misperception: "diagnosis",
+  baseline_stability: "diagnosis",
 };
 
 const STRENGTH_SCORE: Record<"HIGH" | "MEDIUM" | "LOW", number> = { HIGH: 2, MEDIUM: 1, LOW: 0 };

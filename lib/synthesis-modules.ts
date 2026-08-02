@@ -18,12 +18,15 @@ import {
   SITUATION_DIAGNOSIS_SCHEMA,
   parseSituationDiagnosis,
   EMPTY_SITUATION_DIAGNOSIS,
+  COVERAGE_CLASSIFICATION_SCHEMA,
+  parseCoverageClassificationResult,
   type ModuleResult,
   type StrategyResult,
   type PositioningResult,
   type ExecutiveSummaryResult,
   type EditorialInsight,
   type SituationDiagnosis,
+  type CoverageClassificationResult,
 } from "./insight-types";
 
 let client: Anthropic | null = null;
@@ -428,6 +431,8 @@ ${ipTypeLine(params.ipType)}
    - decision이 근거보다 앞서 나가지 않았는가, 그리고 문제가 없다면 NO_CHANGE로 정직하게 표시했는가
    - amplification_risk가 필요한데(강점을 더 키우자는 내용인데) 비어 있지 않은가
    - evidence_scope와 결론의 적용 범위가 정직한가(소수 사례를 전체로 확대하지 않았는가)
+   - 이 insight는 몇 개 콘텐츠에서 반복되는가, 콘텐츠 1개가 결론 전체를 지배하고 있지는 않은가
+   - 대표 댓글이 단지 좋아요 수가 높다는 이유만으로 선택되지 않았는가(반례나 다른 해석 여지는 없는가)
 4. 절제 — 근거보다 앞서 나가는 결론이나 실행 제안이 있으면 완화한다.
 5. evidence_ids 보존 — 인용한 댓글이 가리키는 대상이 바뀌지 않는 한, 원본 insight의 evidence_ids를
    그대로 유지한다. 두 insight를 병합하면 두 evidence_ids를 합친다. 입력에 없던 새 comment_id를
@@ -451,4 +456,74 @@ ${inputText}`;
   if (!toolUse) return params.insights; // 실패 시 1차 초안을 그대로 사용 (편집 실패가 리포트 자체를 막지 않게)
   const edited = parseEditorialPassResult(toolUse.input);
   return edited.length > 0 ? edited : params.insights;
+}
+
+// ---------------------------------------------------------------------------
+// Coverage Classification — editorial pass 이후 확정된 insight들의 "대표 Evidence"와
+// "실제 반복 범위"를 분리하기 위해, 전체 댓글을 다시 훑어 각 insight가 실제로 몇 건/몇 개
+// 콘텐츠에서 반복되는지 판정한다. lib/coverage-audit.ts의 결정론적 통계와 짝을 이룬다.
+// ---------------------------------------------------------------------------
+
+export type CoverageInsightInput = { insightId: number; moduleKey: string; headline: string; interpretation: string };
+export type CoverageCommentInput = { commentId: string; videoId: string | null; text: string };
+
+const EMPTY_COVERAGE_RESULT: CoverageClassificationResult = {
+  items: [],
+  baseline: { applicable: false, headline: "", interpretation: "", evidenceCommentIds: [], matchedVideoIds: [], whyItMatters: "" },
+};
+
+// 댓글 수가 많은 job에서 프롬프트가 무한정 커지지 않도록 상한을 둔다. 이 상한을 넘는 job은
+// 커버리지 판정이 상한 내 댓글로만 이뤄진다는 뜻 - dataCoverageNote 계산 시 총 댓글 수는
+// 별도(DB count)로 정확히 세므로, 이 상한은 "분류 정밀도"에만 영향을 준다.
+const MAX_COMMENTS_FOR_COVERAGE = 800;
+
+/** 이미 확정된(editorial pass 이후) insight들이 대표 사례 몇 건뿐 아니라 실제로 전체 데이터에서
+ * 얼마나 반복되는지 판정하고, 어떤 insight에도 안 걸린 "조용한" 콘텐츠들에서 승격 조건을
+ * 충족하는 안정 패턴이 있는지도 함께 검토한다. */
+export async function runCoverageClassification(params: {
+  keyword: string;
+  insights: CoverageInsightInput[];
+  comments: CoverageCommentInput[];
+}): Promise<CoverageClassificationResult> {
+  if (params.insights.length === 0 || params.comments.length === 0) return EMPTY_COVERAGE_RESULT;
+
+  const comments = params.comments.slice(0, MAX_COMMENTS_FOR_COVERAGE).map((c) => ({
+    id: c.commentId,
+    video: c.videoId,
+    text: c.text.length > 200 ? `${c.text.slice(0, 200)}…` : c.text,
+  }));
+
+  const prompt = `분석 대상(IP): "${params.keyword}"
+
+아래는 이미 확정된 insight 목록이다(1차 분석 + editorial pass를 거쳐 대표 사례 몇 건으로 정리된 상태).
+각 insight는 대표 사례만 인용하고 있는데, 실제로 몇 개 콘텐츠/댓글에서 반복되는 패턴인지는 아직
+확인되지 않았다 - 그걸 지금 전체 댓글을 다시 훑어 판정한다.
+
+[확정된 insight 목록]
+${params.insights.map((i) => `[${i.insightId}] (${i.moduleKey}) ${i.headline}\n${i.interpretation}`).join("\n\n")}
+
+[전체 댓글 (${comments.length}건, video는 videoId)]
+${JSON.stringify(comments)}
+
+각 insight_id에 대해, 전체 댓글 중 실제로 같은 반응 구조를 보이는 댓글을 전부 찾아
+matched_comment_ids에 담아라(대표 사례로 이미 인용된 댓글 포함). 같은 단어를 썼다고 무조건
+포함하지 말고, 실제로 그 insight가 설명하는 반응인지 판단한다. 매칭되는 게 대표 사례
+근처(같은 영상)뿐이면 그대로 좁게 남겨라 - 억지로 넓히지 않는다.
+
+그다음 어떤 insight_id에도 매칭되지 않은 콘텐츠들을 검토하고, baseline 승격 조건(도구 설명 참고)을
+모두 충족할 때만 안정 패턴 insight 후보를 제안하라. 충족하지 않으면 applicable=false로 둔다.
+
+반드시 도구 호출로만 답한다.`;
+
+  const res = await anthropic().messages.create({
+    model: MODEL,
+    max_tokens: 12000,
+    system: IP_INTELLIGENCE_SYSTEM_PROMPT,
+    tools: [COVERAGE_CLASSIFICATION_SCHEMA],
+    tool_choice: { type: "tool", name: "record_coverage_classification" },
+    messages: [{ role: "user", content: prompt }],
+  });
+  const toolUse = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+  if (!toolUse) return EMPTY_COVERAGE_RESULT;
+  return parseCoverageClassificationResult(toolUse.input);
 }

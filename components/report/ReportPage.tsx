@@ -11,6 +11,7 @@ import { DecisionSummary } from "./DecisionSummary";
 import { ChartCard } from "./ChartCard";
 import { RiskCallout } from "./RiskCallout";
 import { LimitationNote } from "./LimitationNote";
+import { DataCoverageNote } from "./DataCoverageNote";
 import { LegacyReportView } from "./LegacyReportView";
 import { CommentExplorer } from "./CommentExplorer";
 
@@ -44,6 +45,7 @@ export function ReportPage({ jobId, report }: { jobId: string; report: ReportMod
           <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_260px]">
             <main className="min-w-0 space-y-10">
               <LimitationNote limitations={report.limitations} />
+              <DataCoverageNote note={report.dataCoverageNote} warnings={report.concentrationWarnings} />
               <ExecutiveDecision decision={report.executiveDecision} />
               <MetricGrid metrics={report.metrics} />
               <RiskCallout riskAlerts={report.riskAlerts} />
