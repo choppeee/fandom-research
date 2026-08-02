@@ -70,7 +70,7 @@ export default async function LandingPage() {
       <section className="mx-auto grid w-full max-w-6xl gap-12 px-6 pb-20 pt-12 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:pt-16">
         <div className="space-y-8">
           {/* 1. Hero Headline - 가장 크다 */}
-          <h1 className="reveal-up text-5xl font-extrabold leading-[1.15] tracking-tight sm:text-6xl" style={{ animationDelay: "0s" }}>
+          <h1 className="reveal-up text-5xl font-extrabold leading-[1.35] tracking-tight sm:text-6xl" style={{ animationDelay: "0s" }}>
             좋은 결정은
             <br />
             준비된 회의에서
