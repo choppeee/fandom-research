@@ -57,6 +57,35 @@ export async function claimNextTask(admin: SupabaseClient, jobId: string): Promi
   return data as AnalysisTask;
 }
 
+/**
+ * claimNextTask의 배치 버전 - 대기 중 태스크를 최대 limit개까지 한 번에 processing으로 바꾼다.
+ * 같은 원리(status="pending" 재확인 후 update)로 경쟁을 막되, SELECT와 UPDATE 사이에 다른 요청이
+ * 먼저 가져간 행은 반환된 updated 목록에서 빠지므로 그 행만 걸러내고 나머지를 반환한다
+ * (일부만 경쟁에서 졌다고 배치 전체를 버리지 않음).
+ */
+export async function claimNextTasks(admin: SupabaseClient, jobId: string, limit: number): Promise<AnalysisTask[]> {
+  const { data: candidates } = await admin
+    .from("analysis_tasks")
+    .select("*")
+    .eq("job_id", jobId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (!candidates || candidates.length === 0) return [];
+
+  const ids = candidates.map((c) => c.id as string);
+  const { data: updated } = await admin
+    .from("analysis_tasks")
+    .update({ status: "processing", updated_at: new Date().toISOString() })
+    .in("id", ids)
+    .eq("status", "pending")
+    .select("id");
+
+  const updatedIds = new Set((updated ?? []).map((u) => u.id as string));
+  return candidates.filter((c) => updatedIds.has(c.id as string)) as AnalysisTask[];
+}
+
 export async function completeTask(admin: SupabaseClient, taskId: string) {
   await admin
     .from("analysis_tasks")

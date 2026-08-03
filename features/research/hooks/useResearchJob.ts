@@ -43,9 +43,11 @@ export function useResearchJob(jobId: string) {
   useEffect(() => {
     if (!isPipelineActive) return;
     let stopped = false;
-    // 댓글이 수천 개면 classify_batch만 수십~백여 개가 생기는데, 워커 수가 곧 동시 처리량이라
-    // 늘릴수록 체감 속도가 빨라진다(claimNextTask가 원자적 CAS라 워커를 늘려도 중복 처리 없음).
-    const WORKER_COUNT = 6;
+    // 서버가 /step 한 번에 태스크를 최대 3개씩 묶어서 처리하므로(lib/pipeline.ts TASK_BATCH_SIZE),
+    // 워커 수를 그대로 6에 두면 동시 LLM 호출이 최대 18개까지 치솟아 API 요청 한도에 걸릴 수 있다.
+    // 워커 수를 낮추는 대신 왕복 자체가 줄어서(태스크 3개당 요청 1번), 총 동시성은 이전과 비슷하게
+    // 유지하면서(2 워커 x 3개 배치 = 최대 6개 동시) 태스크당 오가는 요청 수만 줄인다.
+    const WORKER_COUNT = 2;
 
     async function worker() {
       while (!stopped) {

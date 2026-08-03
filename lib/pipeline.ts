@@ -42,7 +42,7 @@ import { classifyIpType, FALLBACK_IP_TYPE, type IpTypeInfo } from "./ip-classify
 import { computeReportMode, type ReportMode } from "./report-mode";
 import { lintAndLog } from "./style-lint";
 import {
-  claimNextTask,
+  claimNextTasks,
   completeTask,
   enqueueTasks,
   failTask,
@@ -120,6 +120,12 @@ function isPhase(v: string): v is Phase {
 // 통째로 비어버리므로 job 전체를 실패 처리한다. 새 헌법(CLAUDE.md) 기준상 이 결정 레이어는
 // 선택 사항이 아니라 제품의 핵심이라 "일부만 비운 채 done" 처리를 허용하지 않는다.
 // 그 외(모듈 하나, X 수집, 레퍼런스 검색, positioning 등)는 실패해도 해당 부분만 비운 채 계속 진행한다.
+// 한 번의 /step 호출(=서버리스 함수 1회 실행)에서 동시에 처리할 태스크 수. Promise.all로 병렬
+// 실행하므로 소요 시간은 배치 중 가장 느린 태스크 하나 기준이라 maxDuration을 배치 크기만큼
+// 잡아먹지 않는다. 클라이언트 워커 수(useResearchJob.ts)와 곱해지면 동시 LLM 호출 수가 되므로,
+// 두 값을 같이 낮춰서 이전과 비슷한 총 동시성(약 6)을 유지하면서 왕복 횟수만 줄인다.
+const TASK_BATCH_SIZE = 3;
+
 const CRITICAL_TASK_TYPES = new Set([
   "collect_youtube",
   "collect_source",
@@ -159,27 +165,45 @@ export async function stepJob(
 ): Promise<{ done: boolean; failed?: boolean; status?: string; progress?: number }> {
   await recoverStaleTasks(admin, job.id);
 
-  const task = await claimNextTask(admin, job.id);
-  if (task) {
-    const phase = (task.payload?.phase as Phase | undefined) ?? "collect";
-    try {
-      await executeTask(admin, job, task);
-      await completeTask(admin, task.id);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const permanentlyFailed = await failTask(admin, task, message);
-      if (permanentlyFailed) {
-        if (CRITICAL_TASK_TYPES.has(task.task_type)) {
-          await setJobState(admin, job.id, {
-            status: "failed",
-            error_message: `[${task.task_type}] ${message}`,
-          });
-          return { done: true, failed: true };
+  // 같은 phase 안의 태스크는 서로 독립적이라(다른 module_key/id에 각자 행을 쓸 뿐, 같은 행을
+  // 두 태스크가 동시에 고치는 경우가 없다) 한 번의 /step 호출에서 여러 개를 동시에 처리한다.
+  // 태스크마다 HTTP 왕복 + DB claim/complete 왕복이 있었는데, 이걸 묶어서 왕복 횟수 자체를 줄인다.
+  const tasks = await claimNextTasks(admin, job.id, TASK_BATCH_SIZE);
+  if (tasks.length > 0) {
+    const phase = (tasks[0].payload?.phase as Phase | undefined) ?? "collect";
+    let criticalFailure: { taskType: string; message: string } | null = null;
+
+    await Promise.all(
+      tasks.map(async (task) => {
+        try {
+          await executeTask(admin, job, task);
+          await completeTask(admin, task.id);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const permanentlyFailed = await failTask(admin, task, message);
+          if (permanentlyFailed) {
+            if (CRITICAL_TASK_TYPES.has(task.task_type)) {
+              // Promise.all 안에서 즉시 return하지 않고, 배치의 다른 태스크가 저장할 기회는 준 뒤
+              // 아래에서 한 번에 job을 실패 처리한다(먼저 발생한 것 하나만 기록).
+              if (!criticalFailure) criticalFailure = { taskType: task.task_type, message };
+            } else {
+              // 핵심 태스크가 아니면 이 부분만 비워두고 리포트 전체는 계속 진행한다.
+              console.error(`[stepJob] 비핵심 태스크 영구 실패, 건너뜀 (${task.task_type}): ${message}`);
+            }
+          }
         }
-        // 핵심 태스크가 아니면 이 부분만 비워두고 리포트 전체는 계속 진행한다.
-        console.error(`[stepJob] 비핵심 태스크 영구 실패, 건너뜀 (${task.task_type}): ${message}`);
-      }
+      })
+    );
+
+    if (criticalFailure) {
+      const failure = criticalFailure as { taskType: string; message: string };
+      await setJobState(admin, job.id, {
+        status: "failed",
+        error_message: `[${failure.taskType}] ${failure.message}`,
+      });
+      return { done: true, failed: true };
     }
+
     await updateIntraPhaseProgress(admin, job.id, phase);
     return { done: false };
   }
@@ -194,34 +218,60 @@ export async function stepJob(
 
   const started = await phaseTasksExist(admin, job.id, currentPhase);
   if (!started) {
-    // 이 phase의 태스크가 아직 하나도 생성되지 않음 -> 지금 생성.
-    // 클라이언트가 여러 워커를 동시에 돌리므로(속도 향상), 짧은 지터 후 재확인해 같은 phase를
-    // 중복 enqueue하는 경쟁을 줄인다(완전한 락은 아니지만 충돌 확률을 크게 낮춘다).
-    if (job.status !== currentPhase) {
-      await setJobState(admin, job.id, { status: currentPhase, progress: PHASE_START_PROGRESS[currentPhase], error_message: null });
-    }
-    await new Promise((r) => setTimeout(r, 50 + Math.random() * 200));
-    const stillNotStarted = !(await phaseTasksExist(admin, job.id, currentPhase));
-    if (stillNotStarted) {
+    // 이 phase의 태스크가 아직 하나도 생성되지 않음(job.status가 아직 이 phase가 아닌 최초 진입
+    // 상황 - 예: "pending" -> "collect"). research_jobs.status를 "내가 알던 이전 상태일 때만"
+    // 바꾸는 조건부 업데이트(CAS)로 전환하고, 그 전환에 실제로 이긴 요청만 그 자리에서 바로
+    // enqueuePhase까지 실행한다. status 변경과 enqueue를 분리해서 "상태는 바뀌었는데 아직 태스크는
+    // 없는 틈"을 만들면, 그 틈에 다른 워커가 끼어들어 또 enqueue를 시도해 태스크가 중복 생성되는
+    // 문제가 있었다(실측 테스트에서 editorial_pass/visual_data/assemble/module_* 등이 여러 번
+    // 생성되는 것으로 확인됨 - LLM 비용 낭비 + 이미 편집된 결과를 한 번 더 편집해 품질 저하 위험).
+    const won = await tryTransitionPhase(admin, job.id, job.status, currentPhase);
+    if (won) {
       await enqueuePhase(admin, job, currentPhase);
     }
     return { done: false };
   }
 
-  // 이 phase의 태스크가 전부 끝남(성공 또는 영구실패) -> 다음 phase로
+  // 이 phase의 태스크가 전부 끝남(성공 또는 영구실패) -> 다음 phase로.
+  // 이 job 객체는 호출자가 이전에 읽어둔 스냅샷이라 이미 낡았을 수 있다(다른 워커가 그 사이
+  // 여러 phase를 더 진행시켰을 수 있음) - status="currentPhase"일 때만 넘어가는 CAS로 방어하고,
+  // 여기서도 전환에 이긴 요청이 그 자리에서 바로 다음 phase를 enqueue한다(위와 같은 이유).
   const currentIndex = PHASE_ORDER.indexOf(currentPhase);
   if (currentIndex === PHASE_ORDER.length - 1) {
-    // assemble까지 끝났는데 아직 done 처리가 안 됐다면(이례적) 여기서 마무리
-    await setJobState(admin, job.id, { status: "done", progress: 100 });
+    await tryTransitionPhase(admin, job.id, currentPhase, "done", 100);
     return { done: true };
   }
 
   const nextPhase = PHASE_ORDER[currentIndex + 1];
-  await setJobState(admin, job.id, {
-    status: nextPhase,
-    progress: PHASE_START_PROGRESS[nextPhase],
-  });
+  const wonNext = await tryTransitionPhase(admin, job.id, currentPhase, nextPhase);
+  if (wonNext) {
+    await enqueuePhase(admin, job, nextPhase);
+  }
   return { done: false };
+}
+
+/** research_jobs.status를 from -> to로 조건부 전환(CAS)한다. 실제로 이 호출이 전환에 성공했으면
+ * true, 이미 다른 요청이 먼저 바꿔서(또는 job 자체가 더 앞서가 있어서) 아무 것도 안 바뀌었으면
+ * false를 반환한다 - 호출자는 true일 때만 그 phase에 대한 후속 작업(enqueue 등)을 실행해야 한다. */
+async function tryTransitionPhase(
+  admin: SupabaseClient,
+  jobId: string,
+  from: string,
+  to: string,
+  progress?: number
+): Promise<boolean> {
+  const { data } = await admin
+    .from("research_jobs")
+    .update({
+      status: to,
+      progress: progress ?? PHASE_START_PROGRESS[to as Phase],
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .eq("status", from)
+    .select("id");
+  return Boolean(data && data.length > 0);
 }
 
 async function updateIntraPhaseProgress(admin: SupabaseClient, jobId: string, phase: Phase) {
