@@ -191,13 +191,23 @@ export function matrix2x2(
   const plotW = width - pad * 2;
   const plotH = height - pad * 2;
 
+  // 사분면 라벨에 옅은 배경(halo)을 깔고 점(dot)보다 나중에 그려서, 데이터 포인트가 라벨과
+  // 같은 자리(예: 근거 강도·확장 잠재력이 둘 다 낮은 점이 "DEPRIORITIZE" 라벨 위)에 찍혀도
+  // 라벨 글자가 점에 가려 안 보이는 문제를 막는다. 텍스트 폭은 실측 대신 글자 수로 근사한다
+  // (SVG 생성 시점엔 실제 렌더 폭을 알 수 없음 - 라벨은 짧은 대문자/한글 단어라 오차가 작다).
+  const quadrantLabel = (text: string, cx: number, cy: number) => {
+    const approxWidth = text.length * 6.6 + 12;
+    return `
+    <rect x="${(cx - approxWidth / 2).toFixed(1)}" y="${(cy - 11).toFixed(1)}" width="${approxWidth.toFixed(1)}" height="15" rx="3" fill="white" fill-opacity="0.82" />
+    <text x="${cx}" y="${cy}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(text)}</text>`;
+  };
   const quadrantLabels = quadrants
-    ? `
-    <text x="${pad + plotW * 0.75}" y="${pad + 16}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.topRight)}</text>
-    <text x="${pad + plotW * 0.25}" y="${pad + 16}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.topLeft)}</text>
-    <text x="${pad + plotW * 0.75}" y="${pad + plotH - 8}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.bottomRight)}</text>
-    <text x="${pad + plotW * 0.25}" y="${pad + plotH - 8}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(quadrants.bottomLeft)}</text>
-  `
+    ? [
+        quadrantLabel(quadrants.topRight, pad + plotW * 0.75, pad + 16),
+        quadrantLabel(quadrants.topLeft, pad + plotW * 0.25, pad + 16),
+        quadrantLabel(quadrants.bottomRight, pad + plotW * 0.75, pad + plotH - 8),
+        quadrantLabel(quadrants.bottomLeft, pad + plotW * 0.25, pad + plotH - 8),
+      ].join("")
     : "";
 
   const dots = points
@@ -217,10 +227,10 @@ export function matrix2x2(
     <rect x="${pad}" y="${pad}" width="${plotW}" height="${plotH}" fill="none" stroke="${GRAY[200]}" stroke-width="1.5" />
     <line x1="${pad + plotW / 2}" y1="${pad}" x2="${pad + plotW / 2}" y2="${pad + plotH}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
     <line x1="${pad}" y1="${pad + plotH / 2}" x2="${pad + plotW}" y2="${pad + plotH / 2}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
-    ${quadrantLabels}
     <text x="${pad + plotW / 2}" y="${height - 16}" text-anchor="middle" font-size="12" fill="${GRAY[600]}">${esc(xLabel)}</text>
     <text x="18" y="${pad + plotH / 2}" text-anchor="middle" font-size="12" fill="${GRAY[600]}" transform="rotate(-90 18 ${pad + plotH / 2})">${esc(yLabel)}</text>
     ${dots}
+    ${quadrantLabels}
   </svg>`;
 }
 
