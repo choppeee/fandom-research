@@ -191,29 +191,14 @@ export function matrix2x2(
   const plotW = width - pad * 2;
   const plotH = height - pad * 2;
 
-  // 사분면 라벨에 옅은 배경(halo)을 깔고 점(dot)보다 나중에 그려서, 데이터 포인트가 라벨과
-  // 같은 자리(예: 근거 강도·확장 잠재력이 둘 다 낮은 점이 "DEPRIORITIZE" 라벨 위)에 찍혀도
-  // 라벨 글자가 점에 가려 안 보이는 문제를 막는다. 텍스트 폭은 실측 대신 글자 수로 근사한다
-  // (SVG 생성 시점엔 실제 렌더 폭을 알 수 없음 - 라벨은 짧은 대문자/한글 단어라 오차가 작다).
-  const quadrantLabel = (text: string, cx: number, cy: number) => {
-    const approxWidth = text.length * 6.6 + 12;
-    return `
-    <rect x="${(cx - approxWidth / 2).toFixed(1)}" y="${(cy - 11).toFixed(1)}" width="${approxWidth.toFixed(1)}" height="15" rx="3" fill="white" fill-opacity="0.82" />
-    <text x="${cx}" y="${cy}" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="${GRAY[400]}">${esc(text)}</text>`;
-  };
-  const quadrantLabels = quadrants
-    ? [
-        quadrantLabel(quadrants.topRight, pad + plotW * 0.75, pad + 16),
-        quadrantLabel(quadrants.topLeft, pad + plotW * 0.25, pad + 16),
-        quadrantLabel(quadrants.bottomRight, pad + plotW * 0.75, pad + plotH - 8),
-        quadrantLabel(quadrants.bottomLeft, pad + plotW * 0.25, pad + plotH - 8),
-      ].join("")
-    : "";
+  const dotPositions = points.map((p) => ({
+    px: pad + (Math.max(0, Math.min(100, p.x)) / 100) * plotW,
+    py: pad + plotH - (Math.max(0, Math.min(100, p.y)) / 100) * plotH,
+  }));
 
   const dots = points
     .map((p, i) => {
-      const px = pad + (Math.max(0, Math.min(100, p.x)) / 100) * plotW;
-      const py = pad + plotH - (Math.max(0, Math.min(100, p.y)) / 100) * plotH;
+      const { px, py } = dotPositions[i];
       const color = p.color ?? COLORS.primary;
       return `
       <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="13" fill="${color}" fill-opacity="0.14" />
@@ -223,15 +208,30 @@ export function matrix2x2(
     })
     .join("");
 
-  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+  const svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
     <rect x="${pad}" y="${pad}" width="${plotW}" height="${plotH}" fill="none" stroke="${GRAY[200]}" stroke-width="1.5" />
     <line x1="${pad + plotW / 2}" y1="${pad}" x2="${pad + plotW / 2}" y2="${pad + plotH}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
     <line x1="${pad}" y1="${pad + plotH / 2}" x2="${pad + plotW}" y2="${pad + plotH / 2}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
     <text x="${pad + plotW / 2}" y="${height - 16}" text-anchor="middle" font-size="12" fill="${GRAY[600]}">${esc(xLabel)}</text>
     <text x="18" y="${pad + plotH / 2}" text-anchor="middle" font-size="12" fill="${GRAY[600]}" transform="rotate(-90 18 ${pad + plotH / 2})">${esc(yLabel)}</text>
     ${dots}
-    ${quadrantLabels}
   </svg>`;
+
+  // 사분면 이름표를 차트 안(점과 같은 좌표 공간)에 직접 넣으면, 데이터 점이 이름표 자리와
+  // 겹칠 때마다(예: 근거 강도·확장 잠재력이 둘 다 낮은 점이 "DEPRIORITIZE" 칸에 찍히는 경우)
+  // 점과 글자가 서로 가리는 문제가 반복해서 생겼다 - 특히 영문 단어가 길면(DEPRIORITIZE 등)
+  // 칸 하나의 폭보다 글자가 넓어져서 위치를 옮기는 것만으로는 완전히 피할 수 없었다.
+  // 그래서 이름표는 차트 바깥에, 점과 절대 겹치지 않는 별도 범례 줄로 뺐다.
+  const legend = quadrants
+    ? `<div style="display:flex;justify-content:center;gap:14px;flex-wrap:wrap;margin-top:6px;">
+      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↗</strong> ${esc(quadrants.topRight)}</span>
+      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↖</strong> ${esc(quadrants.topLeft)}</span>
+      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↘</strong> ${esc(quadrants.bottomRight)}</span>
+      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↙</strong> ${esc(quadrants.bottomLeft)}</span>
+    </div>`
+    : "";
+
+  return `<div>${svg}${legend}</div>`;
 }
 
 /** 리스크 매트릭스: X=발생 빈도/근거 강도, Y=심각도. matrix2x2를 리스크 전용 사분면 이름으로 감싼 것. */
