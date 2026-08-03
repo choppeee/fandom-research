@@ -4,7 +4,6 @@ import { COLORS, accentForKeyword } from "./tokens";
 import {
   baseStyles,
   coverPage,
-  kpiDashboardPage,
   execSummaryCardsPage,
   ipAtGlancePage,
   insightModulePage,
@@ -172,28 +171,21 @@ export function buildReportHtml(data: ReportData): string {
   pageNum.n++;
 
   // --- 01 EXECUTIVE ---
-  pages.push(
-    kpiDashboardPage({
-      breadcrumb: "01 Executive",
-      reportTitle,
-      pageNum: pageNum.n++,
-      accent,
-      disclaimer:
-        data.researchMode === "single_content"
-          ? `REPORT SCOPE: Single Content Analysis — 이 리포트는 입력한 영상 1개와 그 댓글만을 근거로 합니다. LIMITATION: 이 결과는 입력한 영상과 해당 댓글에 한정됩니다.`
-          : [
-              data.reportMode === "exploratory"
-                ? `표본이 ${data.videoCount + data.postCount}건의 콘텐츠, ${data.commentCount + data.postCount}건의 반응으로 작습니다. 이 리포트는 전체 ${data.keyword}에 대한 확정적 진단이 아니라, 현재 표본에서 발견된 반응 후보를 다룹니다.`
-                : null,
-              data.dataCoverageNote ? `DATA COVERAGE — ${data.dataCoverageNote}` : null,
-            ]
-              .filter(Boolean)
-              .join(" ") || undefined,
-      kpis: data.metrics.map((m) => ({ label: m.label, value: m.value })),
-    })
-  );
+  // 핵심 지표(KPI)만 놓고 아래 절반이 비는 페이지를 따로 두지 않고, Top 5 발견과
+  // 한 페이지로 합쳐서 "지표를 보자마자 근거로 이어지는" 하나의 Executive 페이지로 만든다.
+  const kpiDisclaimer =
+    data.researchMode === "single_content"
+      ? `REPORT SCOPE: Single Content Analysis — 이 리포트는 입력한 영상 1개와 그 댓글만을 근거로 합니다. LIMITATION: 이 결과는 입력한 영상과 해당 댓글에 한정됩니다.`
+      : [
+          data.reportMode === "exploratory"
+            ? `표본이 ${data.videoCount + data.postCount}건의 콘텐츠, ${data.commentCount + data.postCount}건의 반응으로 작습니다. 이 리포트는 전체 ${data.keyword}에 대한 확정적 진단이 아니라, 현재 표본에서 발견된 반응 후보를 다룹니다.`
+            : null,
+          data.dataCoverageNote ? `DATA COVERAGE — ${data.dataCoverageNote}` : null,
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined;
 
-  if (data.executiveSummary.findings.length > 0) {
+  if (data.metrics.length > 0 || data.executiveSummary.findings.length > 0) {
     pages.push(
       execSummaryCardsPage({
         breadcrumb: "01 Executive",
@@ -201,6 +193,8 @@ export function buildReportHtml(data: ReportData): string {
         pageNum: pageNum.n++,
         findings: data.executiveSummary.findings,
         accent,
+        kpis: data.metrics.map((m) => ({ label: m.label, value: m.value })),
+        kpiDisclaimer,
       })
     );
   }
@@ -335,26 +329,17 @@ export function buildReportHtml(data: ReportData): string {
   pages.push(...modPages("risk_misperception", "04 Diagnosis"));
 
   // --- 05 OPPORTUNITY ---
-  if (
+  // 유지·발견·창조 카드가 카테고리 하나에 1~2개만 있으면 그것만으로 페이지 아래 절반이 늘
+  // 비었다 - 매트릭스가 있으면 같은 페이지에 이어 붙여 밀도를 높이고, 매트릭스가 없을 때만
+  // 별도 페이지로 둔다.
+  const hasOpportunityMap =
     data.visualData.opportunityMap.keep.length +
       data.visualData.opportunityMap.discover.length +
       data.visualData.opportunityMap.create.length >
-    0
-  ) {
-    pages.push(
-      opportunityMapPage({
-        breadcrumb: "05 Opportunity",
-        reportTitle,
-        pageNum: pageNum.n++,
-        keep: data.visualData.opportunityMap.keep,
-        discover: data.visualData.opportunityMap.discover,
-        create: data.visualData.opportunityMap.create,
-        accent,
-      })
-    );
-  }
+    0;
+  const hasOpportunityMatrix = data.visualData.opportunityMatrix.points.length > 0;
 
-  if (data.visualData.opportunityMatrix.points.length > 0) {
+  if (hasOpportunityMatrix) {
     const points = data.visualData.opportunityMatrix.points;
     const matrixSvg = matrix2x2(
       points.map((p) => ({ x: p.massAudienceExpansion, y: p.evidenceStrength, color: accent })),
@@ -373,6 +358,19 @@ export function buildReportHtml(data: ReportData): string {
         pageNum: pageNum.n++,
         matrixSvg,
         notes: points.map((p) => ({ label: p.label, note: p.note })),
+        accent,
+        opportunityMap: hasOpportunityMap ? data.visualData.opportunityMap : undefined,
+      })
+    );
+  } else if (hasOpportunityMap) {
+    pages.push(
+      opportunityMapPage({
+        breadcrumb: "05 Opportunity",
+        reportTitle,
+        pageNum: pageNum.n++,
+        keep: data.visualData.opportunityMap.keep,
+        discover: data.visualData.opportunityMap.discover,
+        create: data.visualData.opportunityMap.create,
         accent,
       })
     );

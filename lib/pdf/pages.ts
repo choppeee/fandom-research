@@ -158,42 +158,8 @@ export function coverPage(params: {
 }
 
 // ---------------------------------------------------------------------------
-// C. KPI Dashboard
+// D. Executive Summary - KPI + Top 5 Findings (한 페이지로 통합, 아래 참고)
 // ---------------------------------------------------------------------------
-export function kpiDashboardPage(params: {
-  breadcrumb: string;
-  reportTitle: string;
-  pageNum: number;
-  kpis: { label: string; value: string; sub?: string }[];
-  disclaimer?: string;
-  accent: string;
-}): string {
-  const cards = params.kpis
-    .map(
-      (k) => `<div style="flex:1;min-width:150px;background:${GRAY[50]};border-radius:10px;padding:18px 20px;">
-      <div style="font-size:9.5px;color:${GRAY[500]};letter-spacing:0.5px;margin-bottom:8px;">${esc(k.label)}</div>
-      <div style="font-size:24px;font-weight:700;color:${COLORS.text};">${esc(k.value)}</div>
-      ${k.sub ? `<div style="font-size:10px;color:${GRAY[500]};margin-top:4px;">${esc(k.sub)}</div>` : ""}
-    </div>`
-    )
-    .join("");
-
-  return `<section class="page">
-    ${header(params.breadcrumb)}
-    <h2 style="font-size:24px;margin-bottom:6px;">핵심 지표</h2>
-    <div style="font-size:12px;color:${GRAY[500]};margin-bottom:${params.disclaimer ? "16" : "24"}px;">이번 리서치에서 실제로 계산된 핵심 지표입니다.</div>
-    ${
-      params.disclaimer
-        ? `<div style="background:${COLORS.warningTint};border-left:3px solid ${COLORS.warning};border-radius:6px;padding:10px 14px;margin-bottom:20px;font-size:11px;color:${GRAY[800]};">${esc(params.disclaimer)}</div>`
-        : ""
-    }
-    <div style="display:flex;flex-wrap:wrap;gap:14px;">${cards}</div>
-    ${footer(params.reportTitle, params.pageNum)}
-  </section>`;
-}
-
-// ---------------------------------------------------------------------------
-// D. Executive Summary - Top 5 Findings
 // ---------------------------------------------------------------------------
 export function execSummaryCardsPage(params: {
   breadcrumb: string;
@@ -201,10 +167,12 @@ export function execSummaryCardsPage(params: {
   pageNum: number;
   findings: { headline: string; evidence: string; implication: string }[];
   accent: string;
+  kpis?: { label: string; value: string; sub?: string }[];
+  kpiDisclaimer?: string;
 }): string {
   const cards = params.findings
     .map(
-      (ins, i) => `<div style="border:1px solid ${GRAY[200]};border-radius:10px;padding:14px 18px;margin-bottom:10px;">
+      (ins, i) => `<div class="avoid-break" style="border:1px solid ${GRAY[200]};border-radius:10px;padding:14px 18px;margin-bottom:10px;">
       <div style="display:flex;gap:14px;">
         <div style="font-size:19px;font-weight:700;color:${params.accent};width:32px;flex-shrink:0;">${String(i + 1).padStart(2, "0")}</div>
         <div style="flex:1;">
@@ -217,10 +185,34 @@ export function execSummaryCardsPage(params: {
     )
     .join("");
 
+  // 핵심 지표(KPI) 카드 4개만 놓고 끝나는 별도 페이지는 아래 절반이 항상 비어 하나의
+  // "제품" 페이지로 보기 어려웠다 - 같은 챕터(01 Executive)의 Top 5와 한 페이지로 합쳐
+  // 지표를 본 직후 바로 근거로 이어지게 한다(빈 여백을 늘리는 대신 정보 밀도를 높임).
+  const kpiSection =
+    params.kpis && params.kpis.length > 0
+      ? `<div style="margin-bottom:22px;">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;">${params.kpis
+        .map(
+          (k) => `<div style="flex:1;min-width:150px;background:${GRAY[50]};border-radius:10px;padding:14px 18px;">
+          <div style="font-size:9px;color:${GRAY[500]};letter-spacing:0.5px;margin-bottom:6px;">${esc(k.label)}</div>
+          <div style="font-size:21px;font-weight:700;color:${COLORS.text};">${esc(k.value)}</div>
+          ${k.sub ? `<div style="font-size:9.5px;color:${GRAY[500]};margin-top:3px;">${esc(k.sub)}</div>` : ""}
+        </div>`
+        )
+        .join("")}</div>
+      ${
+        params.kpiDisclaimer
+          ? `<div style="background:${COLORS.warningTint};border-left:3px solid ${COLORS.warning};border-radius:6px;padding:9px 14px;margin-top:12px;font-size:10.5px;color:${GRAY[800]};">${esc(params.kpiDisclaimer)}</div>`
+          : ""
+      }
+    </div>`
+      : "";
+
   return `<section class="page">
     ${header(params.breadcrumb)}
-    <h2 style="font-size:20px;margin-bottom:4px;">핵심 발견 Top 5</h2>
+    <h2 style="font-size:20px;margin-bottom:4px;">핵심 지표 &amp; 발견 Top 5</h2>
     <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">이 페이지만 읽어도 리포트 핵심을 파악할 수 있습니다.</div>
+    ${kpiSection}
     <div>${cards}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -568,6 +560,10 @@ export function opportunityMatrixPage(params: {
   matrixSvg: string;
   notes: { label: string; note: string }[];
   accent: string;
+  // 유지·발견·창조 카드가 각자 한 페이지를 쓰면(특히 카테고리 하나에만 항목이 1~2개 있을 때)
+  // 아래 절반이 항상 비어 "제품"으로 보기 어려웠다 - 같은 챕터(05 Opportunity)의 매트릭스와
+  // 한 페이지로 합쳐서 밀도를 높인다(둘 다 있을 때만; render.ts에서 조건부로 채워준다).
+  opportunityMap?: { keep: { label: string; evidence: string }[]; discover: { label: string; evidence: string }[]; create: { label: string; evidence: string }[] };
 }): string {
   const list = params.notes
     .slice(0, 6)
@@ -579,12 +575,17 @@ export function opportunityMatrixPage(params: {
     )
     .join("");
 
+  const mapSections = params.opportunityMap
+    ? `<div style="margin-top:20px;">${opportunityMapColumns(params.opportunityMap.keep, params.opportunityMap.discover, params.opportunityMap.create, params.accent)}</div>`
+    : "";
+
   return `<section class="page">
     ${header(params.breadcrumb)}
     <h2 style="font-size:20px;margin-bottom:6px;">기회 매트릭스</h2>
     <div style="font-size:11px;color:${GRAY[500]};margin-bottom:16px;">X축: 대중 확장 잠재력 · Y축: 근거 강도 (번호는 아래 목록과 매칭)</div>
     <div class="avoid-break" style="display:flex;justify-content:center;margin-bottom:16px;">${params.matrixSvg}</div>
     <div>${list || `<div class="chart-empty">데이터 부족</div>`}</div>
+    ${mapSections}
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -613,15 +614,12 @@ export function perceptionMapPage(params: {
 // ---------------------------------------------------------------------------
 // L. Opportunity Map (KEEP / DISCOVER / CREATE)
 // ---------------------------------------------------------------------------
-export function opportunityMapPage(params: {
-  breadcrumb: string;
-  reportTitle: string;
-  pageNum: number;
-  keep: { label: string; evidence: string }[];
-  discover: { label: string; evidence: string }[];
-  create: { label: string; evidence: string }[];
-  accent: string;
-}): string {
+export function opportunityMapColumns(
+  keep: { label: string; evidence: string }[],
+  discover: { label: string; evidence: string }[],
+  create: { label: string; evidence: string }[],
+  accent: string
+): string {
   const col = (title: string, items: { label: string; evidence: string }[], color: string) =>
     items.length === 0
       ? ""
@@ -640,12 +638,22 @@ export function opportunityMapPage(params: {
       </div>
     </div>`;
 
+  return `${col("유지 (KEEP)", keep, COLORS.positive)}${col("발견 (DISCOVER)", discover, accent)}${col("창조 (CREATE)", create, COLORS.warning)}`;
+}
+
+export function opportunityMapPage(params: {
+  breadcrumb: string;
+  reportTitle: string;
+  pageNum: number;
+  keep: { label: string; evidence: string }[];
+  discover: { label: string; evidence: string }[];
+  create: { label: string; evidence: string }[];
+  accent: string;
+}): string {
   return `<section class="page">
     ${header(params.breadcrumb)}
     <h2 style="font-size:20px;margin-bottom:16px;">유지·발견·창조</h2>
-    ${col("유지 (KEEP)", params.keep, COLORS.positive)}
-    ${col("발견 (DISCOVER)", params.discover, params.accent)}
-    ${col("창조 (CREATE)", params.create, COLORS.warning)}
+    ${opportunityMapColumns(params.keep, params.discover, params.create, params.accent)}
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
