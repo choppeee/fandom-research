@@ -338,6 +338,13 @@ export function buildReportHtml(data: ReportData): string {
       data.visualData.opportunityMap.create.length >
     0;
   const hasOpportunityMatrix = data.visualData.opportunityMatrix.points.length > 0;
+  const hasFunnel = data.visualData.funnel.stages.length > 0;
+  const funnelParam = hasFunnel
+    ? {
+        funnelSvg: funnelChart(data.visualData.funnel.stages, { width: contentWidth, color: accent }),
+        stages: data.visualData.funnel.stages,
+      }
+    : undefined;
 
   if (hasOpportunityMatrix) {
     const points = data.visualData.opportunityMatrix.points;
@@ -360,6 +367,7 @@ export function buildReportHtml(data: ReportData): string {
         notes: points.map((p) => ({ label: p.label, note: p.note })),
         accent,
         opportunityMap: hasOpportunityMap ? data.visualData.opportunityMap : undefined,
+        funnel: funnelParam,
       })
     );
   } else if (hasOpportunityMap) {
@@ -372,19 +380,17 @@ export function buildReportHtml(data: ReportData): string {
         discover: data.visualData.opportunityMap.discover,
         create: data.visualData.opportunityMap.create,
         accent,
+        funnel: funnelParam,
       })
     );
-  }
-
-  if (data.visualData.funnel.stages.length > 0) {
-    const funnelSvg = funnelChart(data.visualData.funnel.stages, { width: contentWidth, color: accent });
+  } else if (hasFunnel && funnelParam) {
     pages.push(
       audienceFunnelPage({
         breadcrumb: "05 Opportunity",
         reportTitle,
         pageNum: pageNum.n++,
-        funnelSvg,
-        stages: data.visualData.funnel.stages,
+        funnelSvg: funnelParam.funnelSvg,
+        stages: funnelParam.stages,
         accent,
       })
     );

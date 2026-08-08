@@ -76,6 +76,21 @@ export const PAGE = {
   marginBottom: 91, // 24mm
 } as const;
 
+/** 12열 그리드 - 카드/컬럼 레이아웃은 임의 %/px가 아니라 이 열 수에 스냅한다.
+ * contentWidth(마진 제외 본문 폭)를 12열로 나누고 gutter(SPACE.xs)만큼 사이를 띄운다. */
+export const GRID = {
+  columns: 12,
+  gutter: SPACE.xs,
+  contentWidth: PAGE.width - PAGE.marginX * 2,
+} as const;
+
+/** n/12만큼의 폭(px)을 계산한다. 예: gridSpan(4) = 3칸짜리 카드 3열 레이아웃의 1칸 폭. */
+export function gridSpan(cols: number): number {
+  const totalGutter = GRID.gutter * (GRID.columns - 1);
+  const unit = (GRID.contentWidth - totalGutter) / GRID.columns;
+  return unit * cols + GRID.gutter * (cols - 1);
+}
+
 export const EVIDENCE_LABEL: Record<string, string> = {
   high: "확신 높음",
   medium: "확신 보통",
