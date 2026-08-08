@@ -9,6 +9,10 @@ function esc(s: string): string {
   return plain.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// footer(캡션 크기 텍스트 한 줄 + padding-top:14px)가 실제로 차지하는 높이를 여유 있게 잡은
+// 값. .page 콘텐츠 영역을 이 값만큼 더 줄여서, 콘텐츠가 footer 자리에 겹치지 않게 한다.
+const FOOTER_RESERVE = 32;
+
 export function baseStyles(accent: string): string {
   return `
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,12 +24,14 @@ export function baseStyles(accent: string): string {
   }
   /* A4 세로. height는 최소값 - 본문이 길면 이 블록만 자연스럽게 다음 물리 페이지로
      흘러넘치고, 다음 .page는 항상 새 페이지에서 시작한다(고정 캔버스에서 텍스트가
-     잘리던 문제의 근본 원인을 제거). */
+     잘리던 문제의 근본 원인을 제거). footer는 콘텐츠 흐름이 아니라 .page 하단에 고정
+     위치(position:absolute)로 배치하므로(아래 .footer 참고), 콘텐츠 영역 자체를 footer
+     높이만큼 여유 있게 줄여서 콘텐츠가 footer 자리를 침범(겹침)하지 않게 한다. */
   .page {
     width: ${PAGE.width}px; min-height: ${PAGE.height}px; position: relative;
     background: ${COLORS.surface}; page-break-after: always;
     display: flex; flex-direction: column;
-    padding: ${PAGE.marginTop}px ${PAGE.marginX}px ${PAGE.marginBottom}px;
+    padding: ${PAGE.marginTop}px ${PAGE.marginX}px ${PAGE.marginBottom + FOOTER_RESERVE}px;
   }
   .page:last-child { page-break-after: auto; }
   .page-body { flex: 1 0 auto; }
@@ -40,7 +46,13 @@ export function baseStyles(accent: string): string {
   .header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
   .header .dash { width: 36px; height: 2px; background: ${GRAY[300]}; }
   .header .brand { font-size: ${TYPE_SCALE.caption}; font-weight: 700; color: ${GRAY[500]}; letter-spacing: 0.4px; }
-  .footer { margin-top: auto; padding-top: 14px; display: flex; justify-content: space-between; font-size: ${TYPE_SCALE.caption}; color: ${GRAY[400]}; flex-shrink: 0; }
+  /* footer를 flex 흐름(margin-top:auto)에 두면, 콘텐츠가 페이지 내부 높이를 거의 다 채운
+     경우 footer가 들어갈 자리가 모자라 footer 전체가 다음 물리 페이지로 통째로 넘어가고
+     그 페이지는 footer 하나만 있는 사실상 빈 페이지가 되는 문제가 실측 확인됐다 - footer를
+     콘텐츠 흐름에서 완전히 분리해 .page(position:relative) 기준으로 항상 페이지 하단
+     여백에 고정시킨다(콘텐츠가 실제로 다음 페이지로 넘칠 때는 그 물리 페이지의 .page 기준
+     하단에 정확히 따라간다). */
+  .footer { position: absolute; left: ${PAGE.marginX}px; right: ${PAGE.marginX}px; bottom: ${PAGE.marginBottom}px; padding-top: 14px; display: flex; justify-content: space-between; font-size: ${TYPE_SCALE.caption}; color: ${GRAY[400]}; }
   .chart-empty { color: ${GRAY[400]}; font-size: ${TYPE_SCALE.caption}; padding: 20px 0; }
   .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: ${TYPE_SCALE.caption}; font-weight: 700; letter-spacing: 0.3px; }
   .badge-risk { background: ${COLORS.riskTint}; color: ${COLORS.risk}; }
@@ -230,30 +242,35 @@ export function ipAtGlancePage(params: {
   finalSentence: string;
   accent: string;
 }): string {
-  const rows = params.steps
-    .map(
-      (s, i) => `
+  const stepRow = (s: { label: string; value: string }) => `
       <div style="display:flex;align-items:flex-start;gap:${SPACE.sm}px;">
         <div style="width:130px;flex-shrink:0;text-align:right;font-size:${TYPE_SCALE.caption};font-weight:700;letter-spacing:0.4px;color:${params.accent};padding-top:4px;">${esc(s.label)}</div>
         <div style="flex:1;background:${GRAY[50]};border-radius:8px;padding:11px 16px;font-size:${TYPE_SCALE.body};color:${GRAY[800]};">${esc(s.value)}</div>
-      </div>
-      ${i < params.steps.length - 1 ? `<div style="margin-left:138px;color:${GRAY[300]};font-size:${TYPE_SCALE.body};">↓</div>` : ""}
-    `
-    )
-    .join("");
+      </div>`;
+  const arrow = `<div style="margin-left:138px;color:${GRAY[300]};font-size:${TYPE_SCALE.body};">↓</div>`;
+
+  // 최종 결론 박스만 avoid-break로 묶으면, 박스 하나가 다음 물리 페이지 상단에 혼자 남고
+  // 그 앞 페이지 하단은 텅 비는 orphan 현상이 생겼다(사용자 재신고 확인) - 마지막 단계 행을
+  // 결론 박스와 한 덩어리로 묶어서, 페이지를 넘겨야 한다면 최소한 그 둘은 함께 넘어가게 한다.
+  const bodySteps = params.finalSentence ? params.steps.slice(0, -1) : params.steps;
+  const lastStep = params.finalSentence ? params.steps[params.steps.length - 1] : undefined;
+  const rows = bodySteps.map((s, i) => `${stepRow(s)}${i < bodySteps.length - 1 || lastStep ? arrow : ""}`).join("");
+
+  const finalBlock =
+    params.finalSentence && lastStep
+      ? `<div class="avoid-break">
+          ${stepRow(lastStep)}
+          <div style="margin-top:20px;background:${params.accent}12;border-left:3px solid ${params.accent};border-radius:8px;padding:14px 20px;">
+            <div style="font-size:${TYPE_SCALE.caption};font-weight:700;color:${params.accent};letter-spacing:0.5px;margin-bottom:4px;">최종 결론</div>
+            <div style="font-size:${TYPE_SCALE.body};font-weight:700;color:${COLORS.text};">${esc(params.finalSentence)}</div>
+          </div>
+        </div>`
+      : "";
 
   return `<section class="page">
     ${header(params.breadcrumb)}
     <h2 style="font-size:${TYPE_SCALE.section};margin-bottom:${SPACE.sm}px;">한눈에 보는 요약</h2>
-    <div>${rows}</div>
-    ${
-      params.finalSentence
-        ? `<div class="avoid-break" style="margin-top:20px;background:${params.accent}12;border-left:3px solid ${params.accent};border-radius:8px;padding:14px 20px;">
-            <div style="font-size:${TYPE_SCALE.caption};font-weight:700;color:${params.accent};letter-spacing:0.5px;margin-bottom:4px;">최종 결론</div>
-            <div style="font-size:${TYPE_SCALE.body};font-weight:700;color:${COLORS.text};">${esc(params.finalSentence)}</div>
-          </div>`
-        : ""
-    }
+    <div>${rows}${finalBlock}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
@@ -293,18 +310,19 @@ export function insightModulePage(params: {
     .map((e) => `<div style="font-size:${TYPE_SCALE.body};color:${GRAY[700]};padding:7px 0;border-bottom:1px solid ${GRAY[100]};">${esc(e)}</div>`)
     .join("");
 
-  const secondaryHtml = (params.secondary ?? [])
-    .slice(0, 2)
-    .map(
-      (s) => `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid ${GRAY[100]};">
+  const secondaryItem = (s: StructuredInsight) => `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid ${GRAY[100]};">
       <div style="flex-shrink:0;margin-top:2px;display:flex;gap:4px;">${confidenceBadge(s.confidence, params.accent)}${decisionBadge(s.decision, params.accent)}</div>
       <div style="flex:1;">
         <div style="font-size:${TYPE_SCALE.body};font-weight:700;color:${COLORS.text};margin-bottom:2px;">${esc(s.headline)}</div>
         <div style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};line-height:1.5;">${esc(s.strategicImplication)}</div>
       </div>
-    </div>`
-    )
-    .join("");
+    </div>`;
+  const secondaryList = (params.secondary ?? []).slice(0, 2);
+  // "지금 필요한 판단" 박스만 avoid-break로 묶으면 박스 혼자 다음 페이지로 넘어가고 그 앞은
+  // 텅 비는 orphan이 생겼다 - 바로 앞 항목(secondary 마지막 1건, 없으면 없음)과 판단 박스를
+  // 한 덩어리로 묶어 페이지를 넘기게 되더라도 최소한 의미 있는 단위가 함께 이동하게 한다.
+  const secondaryHtml = secondaryList.slice(0, -1).map(secondaryItem).join("");
+  const lastSecondary = secondaryList[secondaryList.length - 1];
 
   return `<section class="page">
     ${header(params.breadcrumb)}
@@ -332,9 +350,12 @@ export function insightModulePage(params: {
         }
       </div>
       ${secondaryHtml ? `<div style="margin-top:6px;">${secondaryHtml}</div>` : ""}
-      <div class="avoid-break" style="margin-top:${SPACE.sm}px;background:${params.accent}0F;border-left:3px solid ${params.accent};border-radius:8px;padding:11px 18px;">
-        <div style="font-size:${TYPE_SCALE.caption};font-weight:700;color:${params.accent};letter-spacing:0.4px;margin-bottom:3px;">지금 필요한 판단</div>
-        <div style="font-size:${TYPE_SCALE.body};color:${GRAY[800]};">${esc(p.whyItMatters)} ${esc(p.strategicImplication)}</div>
+      <div class="avoid-break" style="margin-top:6px;">
+        ${lastSecondary ? secondaryItem(lastSecondary) : ""}
+        <div style="margin-top:${SPACE.sm}px;background:${params.accent}0F;border-left:3px solid ${params.accent};border-radius:8px;padding:11px 18px;">
+          <div style="font-size:${TYPE_SCALE.caption};font-weight:700;color:${params.accent};letter-spacing:0.4px;margin-bottom:3px;">지금 필요한 판단</div>
+          <div style="font-size:${TYPE_SCALE.body};color:${GRAY[800]};">${esc(p.whyItMatters)} ${esc(p.strategicImplication)}</div>
+        </div>
       </div>
     </div>
     ${footer(params.reportTitle, params.pageNum)}
@@ -733,19 +754,22 @@ export function positioningPage(params: {
   const finalBox = (label: string, value: string, color: string) =>
     !value
       ? ""
-      : `<div class="avoid-break" style="background:${color}12;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+      : `<div style="background:${color}12;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
       <div style="font-size:${TYPE_SCALE.caption};font-weight:700;color:${color};letter-spacing:0.4px;margin-bottom:4px;">${label}</div>
       <div style="font-size:${TYPE_SCALE.body};color:${GRAY[800]};line-height:1.5;">${esc(value)}</div>
     </div>`;
+
+  // 핵심/보조/신흥 포지션 박스 3개를 각각 avoid-break로 두면 마지막 박스만 다음 페이지에
+  // 혼자 남는 orphan이 생겼다 - 세 박스를 하나의 avoid-break 단위로 묶어 항상 함께 페이지를
+  // 넘기게 한다.
+  const finalBoxes = `${finalBox("핵심 포지션", params.core, params.accent)}${finalBox("보조 포지션", params.supporting, GRAY[600])}${finalBox("신흥 포지션", params.emerging, COLORS.warning)}`;
 
   return `<section class="page">
     ${header(params.breadcrumb)}
     <h2 style="font-size:${TYPE_SCALE.section};margin-bottom:4px;">포지셔닝 후보</h2>
     <div style="font-size:${TYPE_SCALE.body};color:${GRAY[500]};margin-bottom:${SPACE.sm}px;">Positioning 후보와 최종 추천 포지션</div>
     <div style="margin-bottom:14px;">${rows || `<div class="chart-empty">데이터 부족</div>`}</div>
-    ${finalBox("핵심 포지션", params.core, params.accent)}
-    ${finalBox("보조 포지션", params.supporting, GRAY[600])}
-    ${finalBox("신흥 포지션", params.emerging, COLORS.warning)}
+    <div class="avoid-break">${finalBoxes}</div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
 }
