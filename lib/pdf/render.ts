@@ -228,24 +228,30 @@ export function buildReportHtml(data: ReportData): string {
   const chapter02: ChapterIntro = { num: "02", title: "AUDIENCE", keyQuestion: "누가, 왜 반응하는가?" };
 
   const contentWidth = PAGE.width - PAGE.marginX * 2;
+  // donutChart는 원(size) 옆에 범례 영역(+140px)까지 포함한 SVG를 반환하므로 실제 렌더 폭은
+  // size+140이다 - 옆에 나란히 두는 막대그래프 폭 계산에서 이 legend 폭을 빼먹으면 두 차트의
+  // 합이 페이지 컨텐츠 폭을 넘어 넘치고, Chrome 인쇄 엔진이 문서 전체를 강제로 축소해 흰
+  // 페이지가 왼쪽으로 쏠려 보이는 원인이 됐다(카드/텍스트 정렬과는 무관한 문제).
+  const donutSize = 140;
+  const donutGap = 20;
   const donutSvg = donutChart(
     [
       { label: "긍정", value: data.stats.sentimentRatio.positive, color: COLORS.positive },
       { label: "부정", value: data.stats.sentimentRatio.negative, color: COLORS.risk },
       { label: "중립", value: data.stats.sentimentRatio.neutral, color: COLORS.neutralChart },
     ],
-    { size: 140 }
+    { size: donutSize }
   );
   const keywordSvg = barChartHorizontal(
     data.stats.topKeywords.slice(0, 8).map((k) => ({ label: k.keyword, value: k.count })),
-    { width: contentWidth - 140 - 20, color: accent }
+    { width: contentWidth - (donutSize + 140) - donutGap, color: accent }
   );
   const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: contentWidth, height: 160, color: accent });
   pages.push(`<section class="page">
     ${header("02 Audience")}
     ${chapterBanner({ ...chapter02, accent })}
     <h2 style="font-size:${TYPE_SCALE.section};margin-top:10px;margin-bottom:16px;">감성·주제 분포</h2>
-    <div style="display:flex;gap:20px;align-items:flex-start;">
+    <div style="display:flex;gap:${donutGap}px;align-items:flex-start;">
       <div>${donutSvg}</div>
       <div>${keywordSvg}</div>
     </div>
