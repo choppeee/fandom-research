@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { COLORS, PAGE, accentForKeyword } from "./tokens";
+import { COLORS, PAGE, TYPE_SCALE, accentForKeyword } from "./tokens";
 import {
   baseStyles,
   coverPage,
@@ -244,13 +244,13 @@ export function buildReportHtml(data: ReportData): string {
   pages.push(`<section class="page">
     ${header("02 Audience")}
     ${chapterBanner({ ...chapter02, accent })}
-    <h2 style="font-size:19px;margin-top:10px;margin-bottom:16px;">감성·주제 분포</h2>
+    <h2 style="font-size:${TYPE_SCALE.section};margin-top:10px;margin-bottom:16px;">감성·주제 분포</h2>
     <div style="display:flex;gap:20px;align-items:flex-start;">
       <div>${donutSvg}</div>
       <div>${keywordSvg}</div>
     </div>
     <div style="margin-top:16px;">
-      <div style="font-size:10.5px;color:#686371;margin-bottom:8px;">언급량 · 참여량 추이</div>
+      <div style="font-size:${TYPE_SCALE.body};color:#686371;margin-bottom:8px;">언급량 · 참여량 추이</div>
       ${timelineSvg}
     </div>
     ${footer(reportTitle, pageNum.n++)}

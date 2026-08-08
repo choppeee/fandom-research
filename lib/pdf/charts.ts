@@ -1,4 +1,4 @@
-import { COLORS, GRAY } from "./tokens";
+import { COLORS, GRAY, TYPE_SCALE } from "./tokens";
 
 function esc(s: string): string {
   const plain = String(s).replace(/\*/g, "");
@@ -25,9 +25,9 @@ export function barChartHorizontal(
       const y = i * rowHeight;
       const w = Math.max(4, (item.value / max) * chartWidth);
       return `
-      <text x="${labelWidth - 10}" y="${y + barHeight / 2 + 4}" text-anchor="end" font-size="11" fill="${GRAY[700]}">${esc(item.label)}</text>
+      <text x="${labelWidth - 10}" y="${y + barHeight / 2 + 4}" text-anchor="end" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(item.label)}</text>
       <rect x="${labelWidth}" y="${y}" width="${w}" height="${barHeight}" rx="4" fill="${color}" />
-      <text x="${labelWidth + w + 8}" y="${y + barHeight / 2 + 4}" font-size="11" fill="${GRAY[600]}">${item.value}</text>
+      <text x="${labelWidth + w + 8}" y="${y + barHeight / 2 + 4}" font-size="${TYPE_SCALE.caption}" fill="${GRAY[600]}">${item.value}</text>
     `;
     })
     .join("");
@@ -66,7 +66,7 @@ export function donutChart(
     .map(
       (seg, i) =>
         `<rect x="0" y="${i * 22}" width="10" height="10" rx="2" fill="${seg.color}" />
-       <text x="16" y="${i * 22 + 9}" font-size="12" fill="${GRAY[700]}">${esc(seg.label)} ${Math.round((seg.value / total) * 100)}%</text>`
+       <text x="16" y="${i * 22 + 9}" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(seg.label)} ${Math.round((seg.value / total) * 100)}%</text>`
     )
     .join("");
 
@@ -103,7 +103,7 @@ export function stackedBarChart(
           return rect;
         })
         .join("");
-      return `<text x="${labelWidth - 10}" y="${y + barHeight / 2 + 4}" text-anchor="end" font-size="11" fill="${GRAY[700]}">${esc(row.label)}</text>${segs}`;
+      return `<text x="${labelWidth - 10}" y="${y + barHeight / 2 + 4}" text-anchor="end" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(row.label)}</text>${segs}`;
     })
     .join("");
 
@@ -127,10 +127,10 @@ export function bipolarAxisChart(
       const y = i * rowHeight + 26;
       const px = trackX + (Math.max(0, Math.min(100, axis.position)) / 100) * trackWidth;
       return `
-      <text x="${trackX - 10}" y="${y + 4}" text-anchor="end" font-size="11" fill="${GRAY[700]}">${esc(axis.leftLabel)}</text>
+      <text x="${trackX - 10}" y="${y + 4}" text-anchor="end" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(axis.leftLabel)}</text>
       <line x1="${trackX}" y1="${y}" x2="${trackX + trackWidth}" y2="${y}" stroke="${GRAY[200]}" stroke-width="3" stroke-linecap="round"/>
       <circle cx="${px.toFixed(1)}" cy="${y}" r="7" fill="${color}" />
-      <text x="${trackX + trackWidth + 10}" y="${y + 4}" font-size="11" fill="${GRAY[700]}">${esc(axis.rightLabel)}</text>
+      <text x="${trackX + trackWidth + 10}" y="${y + 4}" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(axis.rightLabel)}</text>
     `;
     })
     .join("");
@@ -158,7 +158,7 @@ export function funnelChart(
       const topInset = i * 6;
       return `
       <rect x="${x}" y="${topInset}" width="${segW}" height="${height - topInset}" rx="8" fill="${strengthColor(s.strength)}" />
-      <text x="${x + segW / 2}" y="${topInset + 26}" text-anchor="middle" font-size="13" font-weight="700" fill="white">${esc(s.stage)}</text>
+      <text x="${x + segW / 2}" y="${topInset + 26}" text-anchor="middle" font-size="${TYPE_SCALE.body}" font-weight="700" fill="white">${esc(s.stage)}</text>
     `;
     })
     .join("");
@@ -167,7 +167,7 @@ export function funnelChart(
     .slice(0, -1)
     .map((_, i) => {
       const x = (i + 1) * (segW + gap) - gap / 2;
-      return `<text x="${x}" y="${height / 2}" text-anchor="middle" font-size="16" fill="${GRAY[400]}">›</text>`;
+      return `<text x="${x}" y="${height / 2}" text-anchor="middle" font-size="${TYPE_SCALE.section}" fill="${GRAY[400]}">›</text>`;
     })
     .join("");
 
@@ -203,7 +203,7 @@ export function matrix2x2(
       return `
       <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="13" fill="${color}" fill-opacity="0.14" />
       <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="9" fill="${color}" />
-      <text x="${px.toFixed(1)}" y="${(py + 3.5).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="white">${i + 1}</text>
+      <text x="${px.toFixed(1)}" y="${(py + 3.5).toFixed(1)}" text-anchor="middle" font-size="${TYPE_SCALE.caption}" font-weight="700" fill="white">${i + 1}</text>
     `;
     })
     .join("");
@@ -212,8 +212,8 @@ export function matrix2x2(
     <rect x="${pad}" y="${pad}" width="${plotW}" height="${plotH}" fill="none" stroke="${GRAY[200]}" stroke-width="1.5" />
     <line x1="${pad + plotW / 2}" y1="${pad}" x2="${pad + plotW / 2}" y2="${pad + plotH}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
     <line x1="${pad}" y1="${pad + plotH / 2}" x2="${pad + plotW}" y2="${pad + plotH / 2}" stroke="${GRAY[100]}" stroke-width="1" stroke-dasharray="4 4" />
-    <text x="${pad + plotW / 2}" y="${height - 16}" text-anchor="middle" font-size="12" fill="${GRAY[600]}">${esc(xLabel)}</text>
-    <text x="18" y="${pad + plotH / 2}" text-anchor="middle" font-size="12" fill="${GRAY[600]}" transform="rotate(-90 18 ${pad + plotH / 2})">${esc(yLabel)}</text>
+    <text x="${pad + plotW / 2}" y="${height - 16}" text-anchor="middle" font-size="${TYPE_SCALE.caption}" fill="${GRAY[600]}">${esc(xLabel)}</text>
+    <text x="18" y="${pad + plotH / 2}" text-anchor="middle" font-size="${TYPE_SCALE.caption}" fill="${GRAY[600]}" transform="rotate(-90 18 ${pad + plotH / 2})">${esc(yLabel)}</text>
     ${dots}
   </svg>`;
 
@@ -224,10 +224,10 @@ export function matrix2x2(
   // 그래서 이름표는 차트 바깥에, 점과 절대 겹치지 않는 별도 범례 줄로 뺐다.
   const legend = quadrants
     ? `<div style="display:flex;justify-content:center;gap:14px;flex-wrap:wrap;margin-top:6px;">
-      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↗</strong> ${esc(quadrants.topRight)}</span>
-      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↖</strong> ${esc(quadrants.topLeft)}</span>
-      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↘</strong> ${esc(quadrants.bottomRight)}</span>
-      <span style="font-size:9px;color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↙</strong> ${esc(quadrants.bottomLeft)}</span>
+      <span style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↗</strong> ${esc(quadrants.topRight)}</span>
+      <span style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↖</strong> ${esc(quadrants.topLeft)}</span>
+      <span style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↘</strong> ${esc(quadrants.bottomRight)}</span>
+      <span style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};"><strong style="color:${GRAY[600]};">↙</strong> ${esc(quadrants.bottomLeft)}</span>
     </div>`
     : "";
 
@@ -278,7 +278,7 @@ export function relationshipNetwork(
     .map(
       (n) => `
     <circle cx="${n.nx.toFixed(1)}" cy="${n.ny.toFixed(1)}" r="${n.nodeR.toFixed(1)}" fill="${color}" fill-opacity="0.85" />
-    <text x="${n.nx.toFixed(1)}" y="${(n.ny + n.nodeR + 16).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="${GRAY[700]}">${esc(n.label)}</text>
+    <text x="${n.nx.toFixed(1)}" y="${(n.ny + n.nodeR + 16).toFixed(1)}" text-anchor="middle" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(n.label)}</text>
   `
     )
     .join("");
@@ -286,7 +286,7 @@ export function relationshipNetwork(
   return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
     ${lines}
     <circle cx="${cx}" cy="${cy}" r="30" fill="${color}" />
-    <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="white">${esc(center.slice(0, 6))}</text>
+    <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="${TYPE_SCALE.body}" font-weight="700" fill="white">${esc(center.slice(0, 6))}</text>
     ${nodeCircles}
   </svg>`;
 }
@@ -327,7 +327,7 @@ export function keywordConstellation(
     .map(
       (n, i) => `
     <circle cx="${n.nx.toFixed(1)}" cy="${n.ny.toFixed(1)}" r="${n.nodeR.toFixed(1)}" fill="${accent}" fill-opacity="${0.5 + (i === 0 ? 0.4 : 0)}" />
-    <text x="${n.nx.toFixed(1)}" y="${(n.ny + n.nodeR + 15).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="${GRAY[600]}">${esc(n.label)}</text>
+    <text x="${n.nx.toFixed(1)}" y="${(n.ny + n.nodeR + 15).toFixed(1)}" text-anchor="middle" font-size="${TYPE_SCALE.caption}" fill="${GRAY[600]}">${esc(n.label)}</text>
   `
     )
     .join("");
@@ -375,7 +375,7 @@ export function areaTimelineChart(
     .map((p, i) => {
       if (i % labelStep !== 0 && i !== points.length - 1) return "";
       const x = pad + i * stepX;
-      return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle" font-size="9.5" fill="${GRAY[500]}">${esc(p.date.slice(5))}</text>`;
+      return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle" font-size="${TYPE_SCALE.caption}" fill="${GRAY[500]}">${esc(p.date.slice(5))}</text>`;
     })
     .join("");
 
