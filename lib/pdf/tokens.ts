@@ -51,14 +51,29 @@ export const TYPE = {
   caption: "9.5px",
 } as const;
 
+/** 에디토리얼 타이포그래피 4단계 - 이 4개 외의 폰트 크기를 새로 만들지 않는다.
+ * Display: 표지/챕터 타이틀. Section: 페이지 제목(h2). Body: 본문. Caption: 라벨/메타. */
+export const TYPE_SCALE = {
+  display: "34px",
+  section: "20px",
+  body: "12.5px",
+  caption: "9.5px",
+} as const;
+
+/** 스페이싱 스케일 - 여백/간격은 이 값들만 쓴다(8의 배수, 임의 수치 금지). */
+export const SPACE = { xs: 8, sm: 16, md: 24, lg: 32, xl: 48, xxl: 64 } as const;
+
 // A4 세로, 96dpi 기준(210mm x 297mm ≈ 794 x 1123px). height는 "최소 높이"로만 쓰인다 -
 // 본문이 길면 그 .page 블록만 자연스럽게 다음 물리 페이지로 흘러넘치고(overflow), 다음
 // .page는 항상 새 페이지에서 시작한다(page-break-after:always). 고정 캔버스에 억지로
 // 맞추던 이전 방식과 달리 텍스트가 잘리지 않는다.
+// 여백: 좌/우는 항상 동일(24mm), 상단은 헤더 여유를 위해 살짝 더 크게(26mm), 하단은 24mm.
 export const PAGE = {
   width: 794,
   height: 1123,
-  margin: 76, // 약 20mm
+  marginX: 91, // 24mm, 좌우 동일
+  marginTop: 98, // 26mm
+  marginBottom: 91, // 24mm
 } as const;
 
 export const EVIDENCE_LABEL: Record<string, string> = {

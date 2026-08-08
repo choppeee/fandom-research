@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { COLORS, accentForKeyword } from "./tokens";
+import { COLORS, PAGE, accentForKeyword } from "./tokens";
 import {
   baseStyles,
   coverPage,
@@ -227,7 +227,7 @@ export function buildReportHtml(data: ReportData): string {
   // (LLM 모듈은 이번 데이터/IP에 적용 불가능할 경우 페이지 자체가 생략될 수 있어 배너 앵커로 쓰지 않는다).
   const chapter02: ChapterIntro = { num: "02", title: "AUDIENCE", keyQuestion: "누가, 왜 반응하는가?" };
 
-  const contentWidth = 794 - 76 * 2; // PAGE.width - margin*2, render.ts는 lib/pdf/tokens.ts의 PAGE를 직접 import 안 해서 상수로 계산
+  const contentWidth = PAGE.width - PAGE.marginX * 2;
   const donutSvg = donutChart(
     [
       { label: "긍정", value: data.stats.sentimentRatio.positive, color: COLORS.positive },

@@ -25,7 +25,7 @@ export function baseStyles(accent: string): string {
     width: ${PAGE.width}px; min-height: ${PAGE.height}px; position: relative;
     background: ${COLORS.surface}; page-break-after: always;
     display: flex; flex-direction: column;
-    padding: ${PAGE.margin}px ${PAGE.margin}px ${Math.round(PAGE.margin * 0.7)}px;
+    padding: ${PAGE.marginTop}px ${PAGE.marginX}px ${PAGE.marginBottom}px;
   }
   .page:last-child { page-break-after: auto; }
   .page-body { flex: 1 0 auto; }
@@ -139,7 +139,7 @@ export function coverPage(params: {
   const { keyword, periodStart, periodEnd, videoCount, commentCount, postCount, generatedAt, topKeywords, accent } = params;
   const graphic = keywordConstellation(topKeywords, { width: 480, height: 340, accent });
   return `<section class="page" style="display:flex;flex-direction:column;padding:0;">
-    <div style="padding:48px ${PAGE.margin}px 32px;background:${COLORS.panelTint};border-bottom:1px solid ${COLORS.border};">
+    <div style="padding:48px ${PAGE.marginX}px 32px;background:${COLORS.panelTint};border-bottom:1px solid ${COLORS.border};">
       <div class="dash" style="margin-bottom:20px;"></div>
       <div style="font-size:11px;color:${GRAY[500]};margin-bottom:10px;letter-spacing:0.3px;">Audience &amp; IP Intelligence Report</div>
       <h1 style="font-size:34px;line-height:1.3;color:${COLORS.text};margin-bottom:20px;">${esc(keyword)}</h1>
@@ -152,7 +152,7 @@ export function coverPage(params: {
     </div>
     <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center;padding:20px;">
       ${graphic}
-      <div style="position:absolute;bottom:24px;left:${PAGE.margin}px;font-size:9.5px;color:${GRAY[400]};">실제 상위 언급 키워드 기반 그래픽</div>
+      <div style="position:absolute;bottom:24px;left:${PAGE.marginX}px;font-size:9.5px;color:${GRAY[400]};">실제 상위 언급 키워드 기반 그래픽</div>
     </div>
   </section>`;
 }
@@ -373,7 +373,7 @@ export function evidencePage(params: {
   const { pkg, accent } = params;
   const heroVideo = pkg.supportingVideos[0];
 
-  const videoWidth = PAGE.width - PAGE.margin * 2;
+  const videoWidth = PAGE.width - PAGE.marginX * 2;
   const videoHeight = Math.round((videoWidth * 9) / 16);
   const videoCardHtml = heroVideo
     ? `<div class="avoid-break">
