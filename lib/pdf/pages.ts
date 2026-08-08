@@ -345,12 +345,20 @@ export function insightModulePage(params: {
 // F-2. Evidence Page — 원본 영상/댓글 근거를 에디토리얼 카드로 (Insight 페이지 바로 다음에 붙는다)
 // ---------------------------------------------------------------------------
 
-function pdfCommentQuote(c: CommentEvidence, tag?: string): string {
-  return `<div style="background:${GRAY[50]};border-radius:8px;padding:10px 12px;">
+function pdfCommentQuote(c: CommentEvidence, tag?: string, fullWidth?: boolean): string {
+  return `<div style="${fullWidth ? "grid-column:1/-1;" : ""}background:${GRAY[50]};border-radius:8px;padding:10px 12px;">
     ${tag ? `<div style="font-size:${TYPE_SCALE.caption};font-weight:700;color:${GRAY[500]};letter-spacing:0.3px;margin-bottom:4px;">${esc(tag)}</div>` : ""}
     <div style="font-size:${TYPE_SCALE.body};color:${GRAY[800]};line-height:1.55;">&ldquo;${esc(c.text)}&rdquo;</div>
     <div style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};margin-top:5px;">좋아요 ${c.likeCount.toLocaleString("ko-KR")}${c.videoTitle ? ` · ${esc(c.videoTitle)}` : ""}</div>
   </div>`;
+}
+
+/** 2열 카드 그리드에서 항목이 홀수 개면 마지막 카드가 왼쪽 칸에만 걸려 오른쪽이 통째로
+ * 비어 보인다(카드가 좌측으로 쏠린 것처럼 보이는 원인) - 마지막 카드를 폭 전체로 펼친다. */
+function commentQuoteGrid(comments: CommentEvidence[]): string {
+  return comments
+    .map((c, i) => pdfCommentQuote(c, undefined, comments.length % 2 === 1 && i === comments.length - 1))
+    .join("");
 }
 
 function pdfQrBlock(qrDataUri: string | null, label: string): string {
@@ -389,7 +397,7 @@ export function evidencePage(params: {
         <div style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};margin-top:2px;">${esc(heroVideo.channelTitle)}${heroVideo.publishedAt ? ` · ${esc(heroVideo.publishedAt.slice(0, 10))}` : ""} · 이 근거로 쓰인 댓글 ${heroVideo.commentCount}건</div>
         ${pdfQrBlock(pkg.qrDataUri, pkg.qrTargetLabel)}
         <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:${SPACE.xs}px;">
-          ${heroVideo.representativeComments.map((c) => pdfCommentQuote(c)).join("")}
+          ${commentQuoteGrid(heroVideo.representativeComments)}
         </div>
       </div>`
     : "";
@@ -397,7 +405,7 @@ export function evidencePage(params: {
   const collageHtml =
     !heroVideo && pkg.supportingComments.length > 0
       ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          ${pkg.supportingComments.slice(0, 6).map((c) => pdfCommentQuote(c)).join("")}
+          ${commentQuoteGrid(pkg.supportingComments.slice(0, 6))}
         </div>`
       : "";
 
@@ -446,10 +454,8 @@ export function diagnosticDashboardPage(params: {
   risks: { label: string; evidence: string }[];
   accent: string;
 }): string {
-  const col = (title: string, items: { label: string; evidence: string }[], color: string) =>
-    items.length === 0
-      ? ""
-      : `<div>
+  const col = (title: string, items: { label: string; evidence: string }[], color: string, fullWidth: boolean) =>
+    `<div${fullWidth ? ' style="grid-column:1/-1;"' : ""}>
       <div style="font-size:${TYPE_SCALE.caption};font-weight:700;color:${color};letter-spacing:0.4px;margin-bottom:10px;">${title}</div>
       ${items
         .slice(0, 3)
@@ -462,6 +468,20 @@ export function diagnosticDashboardPage(params: {
         .join("")}
     </div>`;
 
+  // 4개 그룹 중 데이터 없는 그룹은 렌더링하지 않는데, 2열 그리드에서 남은 그룹 수가 홀수면
+  // 마지막 그룹이 왼쪽 칸에만 걸치고 오른쪽이 통째로 비어 "카드가 좌측으로 쏠린" 것처럼
+  // 보였다 - 홀수로 남을 때는 실제로 남는 마지막 그룹만 폭 전체로 펼쳐 비대칭을 없앤다.
+  const groups: [string, { label: string; evidence: string }[], string][] = [
+    ["확고한 강점", params.strong, COLORS.positive],
+    ["숨은 자산", params.hidden, params.accent],
+    ["약한 신호", params.weak, COLORS.warning],
+    ["위험 요인", params.risks, COLORS.risk],
+  ].filter(([, items]) => items.length > 0) as [string, { label: string; evidence: string }[], string][];
+  const lastIndex = groups.length - 1;
+  const groupsHtml = groups
+    .map(([title, items, color], i) => col(title, items, color, groups.length % 2 === 1 && i === lastIndex))
+    .join("");
+
   const bannerHtml = params.chapterIntro ? chapterBanner({ ...params.chapterIntro, accent: params.accent }) : "";
 
   return `<section class="page">
@@ -469,10 +489,7 @@ export function diagnosticDashboardPage(params: {
     ${bannerHtml}
     <h2 style="font-size:${TYPE_SCALE.section};margin-top:${params.chapterIntro ? 10 : 0}px;margin-bottom:${SPACE.sm}px;">강점·위험 진단</h2>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:${SPACE.sm}px;">
-      ${col("확고한 강점", params.strong, COLORS.positive)}
-      ${col("숨은 자산", params.hidden, params.accent)}
-      ${col("약한 신호", params.weak, COLORS.warning)}
-      ${col("위험 요인", params.risks, COLORS.risk)}
+      ${groupsHtml}
     </div>
     ${footer(params.reportTitle, params.pageNum)}
   </section>`;
@@ -640,16 +657,19 @@ export function opportunityMapColumns(
   create: { label: string; evidence: string }[],
   accent: string
 ): string {
-  const col = (title: string, items: { label: string; evidence: string }[], color: string) =>
-    items.length === 0
+  const col = (title: string, items: { label: string; evidence: string }[], color: string) => {
+    const shown = items.slice(0, 3);
+    // 카드가 홀수 개(1·3개) 남으면 마지막 카드가 2열 그리드의 왼쪽 칸에만 걸려 오른쪽이
+    // 통째로 비어 보인다 - 마지막 카드를 폭 전체로 펼쳐 비대칭을 없앤다.
+    const lastOddIndex = shown.length % 2 === 1 ? shown.length - 1 : -1;
+    return items.length === 0
       ? ""
       : `<div class="avoid-break" style="margin-bottom:14px;">
       <div style="display:inline-block;font-size:${TYPE_SCALE.caption};font-weight:700;color:white;background:${color};border-radius:6px;padding:5px 12px;margin-bottom:10px;letter-spacing:0.5px;">${title}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:${SPACE.xs}px;">
-        ${items
-          .slice(0, 3)
+        ${shown
           .map(
-            (it) => `<div style="border:1px solid ${GRAY[200]};border-radius:8px;padding:10px 12px;">
+            (it, i) => `<div style="${i === lastOddIndex ? "grid-column:1/-1;" : ""}border:1px solid ${GRAY[200]};border-radius:8px;padding:10px 12px;">
               <div style="font-size:${TYPE_SCALE.body};font-weight:700;margin-bottom:3px;">${esc(it.label)}</div>
               <div style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};">${esc(it.evidence)}</div>
             </div>`
@@ -657,6 +677,7 @@ export function opportunityMapColumns(
           .join("")}
       </div>
     </div>`;
+  };
 
   return `${col("유지 (KEEP)", keep, COLORS.positive)}${col("발견 (DISCOVER)", discover, accent)}${col("창조 (CREATE)", create, COLORS.warning)}`;
 }
@@ -846,11 +867,14 @@ export function referencePage(params: {
   context: { title: string; url: string; note: string; qrDataUri?: string | null }[];
   accent: string;
 }): string {
-  const cardsFor = (refs: { title: string; url: string; note: string; qrDataUri?: string | null }[]) =>
-    refs
-      .slice(0, 2)
+  const cardsFor = (refs: { title: string; url: string; note: string; qrDataUri?: string | null }[]) => {
+    const shown = refs.slice(0, 2);
+    // 카드가 1개뿐이면 calc(50%)로 절반만 차지해 오른쪽이 통째로 비어 보인다(카드가 좌측으로
+    // 쏠린 것처럼 보이는 원인) - 1개일 때는 폭 전체로 펼친다.
+    const cardWidth = shown.length === 1 ? "100%" : "calc(50% - 8px)";
+    return shown
       .map(
-        (r) => `<div style="width:calc(50% - 8px);border:1px solid ${GRAY[200]};border-radius:10px;padding:14px;display:flex;gap:12px;">
+        (r) => `<div style="width:${cardWidth};border:1px solid ${GRAY[200]};border-radius:10px;padding:14px;display:flex;gap:12px;">
       <div style="flex:1;">
         <div style="font-size:${TYPE_SCALE.body};font-weight:700;color:${COLORS.text};margin-bottom:6px;line-height:1.4;">${esc(r.title)}</div>
         <div style="font-size:${TYPE_SCALE.caption};color:${GRAY[500]};margin-bottom:${SPACE.xs}px;">${esc(r.note)}</div>
@@ -860,6 +884,7 @@ export function referencePage(params: {
     </div>`
       )
       .join("");
+  };
 
   const section = (title: string, refs: { title: string; url: string; note: string; qrDataUri?: string | null }[]) =>
     refs.length === 0
