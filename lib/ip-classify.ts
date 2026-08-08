@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createMessageWithCorruptionRetry } from "./claude";
 import type { CommentSampleItem } from "./aggregate";
 
 let client: Anthropic | null = null;
@@ -55,7 +56,7 @@ export const FALLBACK_IP_TYPE: IpTypeInfo = {
 
 export async function classifyIpType(keyword: string, sample: CommentSampleItem[]): Promise<IpTypeInfo> {
   try {
-    const res = await anthropic().messages.create({
+    const res = await createMessageWithCorruptionRetry(anthropic(), {
       model: "claude-haiku-4-5-20251001",
       max_tokens: 300,
       tools: [SCHEMA],

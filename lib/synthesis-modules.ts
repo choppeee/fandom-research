@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { IP_INTELLIGENCE_SYSTEM_PROMPT } from "./ip-intelligence-prompt";
+import { createMessageWithCorruptionRetry } from "./claude";
 import type { CommentSampleItem, Aggregates } from "./aggregate";
 import type { IpTypeInfo } from "./ip-classify";
 import { REPORT_MODE_GUIDE, type ReportMode } from "./report-mode";
@@ -118,7 +119,7 @@ ${JSON.stringify(
 [대표 댓글/게시물 샘플 (${params.sample.length}건)]
 ${JSON.stringify(params.sample.slice(0, 40), null, 2)}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: 1500,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
@@ -157,7 +158,7 @@ ${COMPRESSION_NOTE}
 
 ${params.inputModulesText}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: params.maxTokens ?? 6000,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
@@ -204,7 +205,7 @@ ${JSON.stringify({ topKeywords: params.stats.topKeywords, sentimentRatio: params
 [대표 게시물 샘플 (${params.sample.length}건)]
 ${JSON.stringify(params.sample, null, 2)}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: 5000,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
@@ -247,7 +248,7 @@ ${ipTypeLine(params.ipType)}
 
 ${params.inputModulesText}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: 4000,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
@@ -296,7 +297,7 @@ TEST/CORRECT/EXPAND가 중심이 될 수도 있다. 표현 하나가 반복됐�
 
 ${params.inputModulesText}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: 6000,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
@@ -341,7 +342,7 @@ ${ipTypeLine(params.ipType)}
 
 ${params.inputModulesText}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: 4000,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
@@ -444,7 +445,7 @@ ${ipTypeLine(params.ipType)}
 [1차 초안 insights]
 ${inputText}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: 8192,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
@@ -515,7 +516,7 @@ matched_comment_ids에 담아라(대표 사례로 이미 인용된 댓글 포함
 
 반드시 도구 호출로만 답한다.`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODEL,
     max_tokens: 12000,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,

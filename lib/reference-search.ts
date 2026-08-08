@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createMessageWithCorruptionRetry } from "./claude";
 
 let client: Anthropic | null = null;
 function anthropic() {
@@ -60,7 +61,7 @@ export async function searchValidatedReferences(params: {
   if (params.focusAreas.length === 0) return [];
 
   try {
-    const res = await anthropic().messages.create({
+    const res = await createMessageWithCorruptionRetry(anthropic(), {
       model: "claude-sonnet-5",
       max_tokens: 2000,
       // 서버사이드 웹 검색 도구. 계정/플랜에 따라 사용 불가할 수 있으며,

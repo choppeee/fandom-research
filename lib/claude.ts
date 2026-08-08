@@ -11,6 +11,19 @@ function anthropic() {
   return client;
 }
 
+/** 드물게 모델 응답의 멀티바이트 문자가 토큰 경계에서 깨져 U+FFFD(�)로 디코딩되는 경우가 있다.
+ * 결정론적 버그가 아니라 그 호출 자체의 디코딩 아티팩트이므로, 감지되면 동일 요청을 1회 재시도한다. */
+export async function createMessageWithCorruptionRetry(
+  llm: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming
+): Promise<Anthropic.Message> {
+  const res = await llm.messages.create(params);
+  if (JSON.stringify(res.content).includes("�")) {
+    return llm.messages.create(params);
+  }
+  return res;
+}
+
 // 댓글 배치 처리 크기 (PLAN.md 5.2: 20~30개씩 묶어 1회 호출)
 export const COMMENT_BATCH_SIZE = 25;
 const CLASSIFY_MODEL = "claude-haiku-4-5-20251001";
@@ -92,7 +105,7 @@ export async function analyzeCommentBatch(
 댓글 목록 (JSON):
 ${JSON.stringify(comments, null, 2)}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: CLASSIFY_MODEL,
     max_tokens: 8192,
     tools: [COMMENT_TOOL_SCHEMA],
@@ -189,7 +202,7 @@ ${JSON.stringify(
 [대표 댓글 샘플 (${ctx.commentSample.length}건 — likeCount 및 1차 분류 라벨 포함)]
 ${JSON.stringify(ctx.commentSample, null, 2)}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: INSIGHT_MODEL,
     max_tokens: INSIGHT_MAX_TOKENS,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,

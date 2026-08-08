@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { IP_INTELLIGENCE_SYSTEM_PROMPT } from "./ip-intelligence-prompt";
+import { createMessageWithCorruptionRetry } from "./claude";
 import type { CommentSampleItem, Aggregates } from "./aggregate";
 import { moduleResultSchema, parseModuleResult, EMPTY_MODULE_RESULT, type ModuleResult, type SituationDiagnosis } from "./insight-types";
 import type { IpTypeInfo } from "./ip-classify";
@@ -199,7 +200,7 @@ export async function runAnalysisModule(
   }
 ): Promise<{ title: string; result: ModuleResult }> {
   const schema = moduleResultSchema("record_insights", `${def.title} 모듈의 구조화된 Insight를 기록한다.`);
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: MODULE_MODEL,
     max_tokens: MODULE_MAX_TOKENS,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT + "\n" + MODULE_ADDENDUM,

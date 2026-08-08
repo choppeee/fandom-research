@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createMessageWithCorruptionRetry } from "./claude";
 
 let client: Anthropic | null = null;
 function anthropic() {
@@ -34,7 +35,7 @@ export async function expandSearchQuery(keyword: string, platform: "x" | "web"):
   let variants: string[] = [];
 
   try {
-    const res = await anthropic().messages.create({
+    const res = await createMessageWithCorruptionRetry(anthropic(), {
       model: "claude-haiku-4-5-20251001",
       max_tokens: 512,
       tools: [EXPAND_TOOL_SCHEMA],

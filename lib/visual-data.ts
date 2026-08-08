@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { IP_INTELLIGENCE_SYSTEM_PROMPT } from "./ip-intelligence-prompt";
+import { createMessageWithCorruptionRetry } from "./claude";
 
 let client: Anthropic | null = null;
 function anthropic() {
@@ -193,7 +194,7 @@ DISCOVER(발견됐지만 미활용)/CREATE(확장 가능한 새 포지션)로 �
 
 ${params.modules.map((m) => `--- ${m.title} ---\n${m.content}`).join("\n\n")}`;
 
-  const res = await anthropic().messages.create({
+  const res = await createMessageWithCorruptionRetry(anthropic(), {
     model: "claude-sonnet-5",
     max_tokens: 3000,
     system: IP_INTELLIGENCE_SYSTEM_PROMPT,
