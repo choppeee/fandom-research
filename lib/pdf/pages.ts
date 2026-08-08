@@ -4,7 +4,7 @@ import type { StructuredInsight, DecisionType, PossibleBottleneck } from "../ins
 import type { CommentEvidence } from "../evidence-types";
 import type { PdfEvidencePackage } from "./evidence-types";
 
-function esc(s: string): string {
+export function esc(s: string): string {
   const plain = String(s ?? "").replace(/\*/g, "");
   return plain.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -149,7 +149,9 @@ export function coverPage(params: {
   accent: string;
 }): string {
   const { keyword, periodStart, periodEnd, videoCount, commentCount, postCount, generatedAt, topKeywords, accent } = params;
-  const graphic = keywordConstellation(topKeywords, { width: 480, height: 340, accent });
+  // 표지 그래픽은 장식이 아니라 이 페이지의 유일한 시각적 앵커다 - 아래 남는 공간에 비해
+  // 너무 작으면 죽은 여백만 늘어난다. 실제 크기를 키운다(CSS transform 확대 금지).
+  const graphic = keywordConstellation(topKeywords, { width: 560, height: 520, accent });
   return `<section class="page" style="display:flex;flex-direction:column;padding:0;">
     <div style="padding:48px ${PAGE.marginX}px 32px;background:${COLORS.panelTint};border-bottom:1px solid ${COLORS.border};">
       <div class="dash" style="margin-bottom:20px;"></div>

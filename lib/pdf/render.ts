@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { COLORS, PAGE, TYPE_SCALE, accentForKeyword } from "./tokens";
+import { COLORS, GRAY, PAGE, TYPE_SCALE, SPACE, accentForKeyword } from "./tokens";
 import {
   baseStyles,
   coverPage,
@@ -22,6 +22,7 @@ import {
   header,
   footer,
   chapterBanner,
+  esc,
 } from "./pages";
 import type { PdfEvidencePackage } from "./evidence-types";
 import { barChartHorizontal, donutChart, areaTimelineChart, funnelChart, matrix2x2, bipolarAxisChart } from "./charts";
@@ -232,7 +233,9 @@ export function buildReportHtml(data: ReportData): string {
   // size+140이다 - 옆에 나란히 두는 막대그래프 폭 계산에서 이 legend 폭을 빼먹으면 두 차트의
   // 합이 페이지 컨텐츠 폭을 넘어 넘치고, Chrome 인쇄 엔진이 문서 전체를 강제로 축소해 흰
   // 페이지가 왼쪽으로 쏠려 보이는 원인이 됐다(카드/텍스트 정렬과는 무관한 문제).
-  const donutSize = 140;
+  // 이 페이지는 차트 자체가 핵심 정보라 이전보다 크게 키운다(장식이 아니라 장식 밑에 남는
+  // 죽은 여백을 없애기 위함 - CSS scale이 아니라 실제 SVG 치수를 키운다).
+  const donutSize = 180;
   const donutGap = 20;
   const donutSvg = donutChart(
     [
@@ -244,20 +247,40 @@ export function buildReportHtml(data: ReportData): string {
   );
   const keywordSvg = barChartHorizontal(
     data.stats.topKeywords.slice(0, 8).map((k) => ({ label: k.keyword, value: k.count })),
-    { width: contentWidth - (donutSize + 140) - donutGap, color: accent }
+    { width: contentWidth - (donutSize + 140) - donutGap, barHeight: 26, gap: 12, color: accent }
   );
-  const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: contentWidth, height: 160, color: accent });
+  const timelineSvg = areaTimelineChart(data.stats.dailyTrend, { width: contentWidth, height: 260, color: accent });
+
+  // 아래 두 캡션은 LLM 해석이 아니라 이미 집계된 수치에서 결정론적으로 계산한 사실 문장이다
+  // (근거 없는 원인 해석을 붙이지 않는다 - 원인 해석은 03 Perception 챕터의 본문이 맡는다).
+  // 막대그래프에 실제로 보이는 상위 8개를 기준으로 계산해 문장과 그래프가 어긋나지 않게 한다.
+  const shownKeywords = data.stats.topKeywords.slice(0, 8);
+  const topKw = shownKeywords[0];
+  const keywordTotal = shownKeywords.reduce((s, k) => s + k.count, 0) || 1;
+  const keywordCaption = topKw
+    ? `가장 많이 언급된 키워드는 '${esc(topKw.keyword)}'로, 상위 ${shownKeywords.length}개 키워드 언급의 ${Math.round((topKw.count / keywordTotal) * 100)}%를 차지한다.`
+    : "";
+  const trend = data.stats.dailyTrend;
+  const trendCaption =
+    trend.length >= 2
+      ? trend[trend.length - 1].mentions === trend[0].mentions
+        ? `언급량은 ${esc(trend[0].date.slice(5))}부터 ${esc(trend[trend.length - 1].date.slice(5))}까지 뚜렷한 증감 없이 유지됐다.`
+        : `언급량은 ${esc(trend[0].date.slice(5))}(${trend[0].mentions}건)에서 ${esc(trend[trend.length - 1].date.slice(5))}(${trend[trend.length - 1].mentions}건)로 ${trend[trend.length - 1].mentions > trend[0].mentions ? "늘었다" : "줄었다"}.`
+      : "";
+
   pages.push(`<section class="page">
     ${header("02 Audience")}
     ${chapterBanner({ ...chapter02, accent })}
-    <h2 style="font-size:${TYPE_SCALE.section};margin-top:10px;margin-bottom:16px;">감성·주제 분포</h2>
+    <h2 style="font-size:${TYPE_SCALE.section};margin-top:10px;margin-bottom:${SPACE.sm}px;">감성·주제 분포</h2>
     <div style="display:flex;gap:${donutGap}px;align-items:flex-start;">
       <div>${donutSvg}</div>
       <div>${keywordSvg}</div>
     </div>
-    <div style="margin-top:16px;">
-      <div style="font-size:${TYPE_SCALE.body};color:#686371;margin-bottom:8px;">언급량 · 참여량 추이</div>
+    ${keywordCaption ? `<div style="margin-top:${SPACE.sm}px;font-size:${TYPE_SCALE.body};color:${GRAY[700]};">${keywordCaption}</div>` : ""}
+    <div style="margin-top:${SPACE.lg}px;">
+      <div style="font-size:${TYPE_SCALE.body};font-weight:700;color:${COLORS.text};margin-bottom:${SPACE.sm}px;">언급량 · 참여량 추이</div>
       ${timelineSvg}
+      ${trendCaption ? `<div style="margin-top:${SPACE.xs}px;font-size:${TYPE_SCALE.body};color:${GRAY[700]};">${trendCaption}</div>` : ""}
     </div>
     ${footer(reportTitle, pageNum.n++)}
   </section>`);
@@ -276,7 +299,7 @@ export function buildReportHtml(data: ReportData): string {
 
   if (data.visualData.perceptionMap.axes.length > 0) {
     const axisSvg = bipolarAxisChart(
-      data.visualData.perceptionMap.axes.map((a) => ({ leftLabel: a.leftLabel, rightLabel: a.rightLabel, position: a.position })),
+      data.visualData.perceptionMap.axes.map((a) => ({ leftLabel: a.leftLabel, rightLabel: a.rightLabel, position: a.position, note: a.note })),
       { width: contentWidth, color: accent }
     );
     pages.push(

@@ -1,4 +1,4 @@
-import { COLORS, GRAY, TYPE_SCALE } from "./tokens";
+import { COLORS, GRAY, TYPE_SCALE, SPACE } from "./tokens";
 
 function esc(s: string): string {
   const plain = String(s).replace(/\*/g, "");
@@ -110,32 +110,47 @@ export function stackedBarChart(
   return `<svg width="${opts.width}" height="${height}" viewBox="0 0 ${opts.width} ${height}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
 }
 
-/** 양극 축 (Perception Map). */
+/** 양극 축 (Perception Map). 이 차트가 페이지의 핵심 정보일 때는 트랙과 마커를 충분히 크게
+ * 그리고, 실제 추출된 axis.note(왜 이 위치인지에 대한 근거 문장)를 마커 아래 캡션으로 보여준다
+ * - note는 LLM이 새로 지어내는 게 아니라 이미 추출 단계에서 만들어진 값을 처음으로 노출하는 것. */
 export function bipolarAxisChart(
   axes: { leftLabel: string; rightLabel: string; position: number; note?: string }[],
   opts: { width: number; color?: string } = { width: 620 }
 ): string {
   if (axes.length === 0) return `<div class="chart-empty">표시할 데이터가 없습니다</div>`;
   const color = opts.color ?? COLORS.primary;
-  const rowHeight = 54;
+  const rowHeight = 110;
   const height = axes.length * rowHeight;
-  const trackX = 130;
-  const trackWidth = opts.width - trackX - 130;
+  const trackX = 150;
+  const trackWidth = opts.width - trackX - 150;
 
   const rows = axes
     .map((axis, i) => {
-      const y = i * rowHeight + 26;
+      const y = i * rowHeight + rowHeight / 2;
       const px = trackX + (Math.max(0, Math.min(100, axis.position)) / 100) * trackWidth;
       return `
-      <text x="${trackX - 10}" y="${y + 4}" text-anchor="end" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(axis.leftLabel)}</text>
-      <line x1="${trackX}" y1="${y}" x2="${trackX + trackWidth}" y2="${y}" stroke="${GRAY[200]}" stroke-width="3" stroke-linecap="round"/>
-      <circle cx="${px.toFixed(1)}" cy="${y}" r="7" fill="${color}" />
-      <text x="${trackX + trackWidth + 10}" y="${y + 4}" font-size="${TYPE_SCALE.caption}" fill="${GRAY[700]}">${esc(axis.rightLabel)}</text>
+      <text x="${trackX - 14}" y="${y + 5}" text-anchor="end" font-size="${TYPE_SCALE.body}" font-weight="700" fill="${GRAY[700]}">${esc(axis.leftLabel)}</text>
+      <line x1="${trackX}" y1="${y}" x2="${trackX + trackWidth}" y2="${y}" stroke="${GRAY[200]}" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="${px.toFixed(1)}" cy="${y}" r="16" fill="${color}" fill-opacity="0.16" />
+      <circle cx="${px.toFixed(1)}" cy="${y}" r="10" fill="${color}" />
+      <text x="${trackX + trackWidth + 14}" y="${y + 5}" font-size="${TYPE_SCALE.body}" font-weight="700" fill="${GRAY[700]}">${esc(axis.rightLabel)}</text>
     `;
     })
     .join("");
 
-  return `<svg width="${opts.width}" height="${height}" viewBox="0 0 ${opts.width} ${height}" xmlns="http://www.w3.org/2000/svg">${rows}</svg>`;
+  const svg = `<svg width="${opts.width}" height="${height}" viewBox="0 0 ${opts.width} ${height}" xmlns="http://www.w3.org/2000/svg">${rows}</svg>`;
+
+  const notes = axes
+    .filter((a) => a.note)
+    .map(
+      (a) => `<div style="display:flex;gap:8px;align-items:baseline;margin-bottom:6px;">
+        <span style="color:${color};font-size:${TYPE_SCALE.body};">●</span>
+        <span style="font-size:${TYPE_SCALE.body};color:${GRAY[700]};"><strong>${esc(a.leftLabel)} ↔ ${esc(a.rightLabel)}</strong> — ${esc(a.note!)}</span>
+      </div>`
+    )
+    .join("");
+
+  return `<div>${svg}${notes ? `<div style="margin-top:${SPACE.sm}px;">${notes}</div>` : ""}</div>`;
 }
 
 /** 오디언스 퍼널. */
